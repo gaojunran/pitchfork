@@ -994,7 +994,7 @@
         "hide": false,
         "subcommand_required": true,
         "help": "Manage the pitchfork reverse proxy",
-        "help_long": "Manage the pitchfork reverse proxy\n\nThe reverse proxy routes requests from stable URLs like:\n  http://api.myproject.localhost:7777\n\nto the daemon's actual listening port (e.g. localhost:3000).\n\nThis gives daemons stable, human-friendly URLs that don't change when\nports are auto-bumped or reassigned.\n\nEnable the proxy in your pitchfork.toml or settings:\n  [settings.proxy]\n  enable = true\n\nSubcommands:\n  trust    Install the proxy's TLS certificate into the system trust store",
+        "help_long": "Manage the pitchfork reverse proxy\n\nThe reverse proxy routes requests from stable slug-based URLs like:\n  http://myapp.localhost:7777\n\nto the daemon's actual listening port (e.g. localhost:3000).\n\nOnly daemons with a `slug` are routable through the proxy.\nNo slug = not proxied. This is an explicit opt-in model.\n\nEnable the proxy in your pitchfork.toml or settings:\n  [settings.proxy]\n  enable = true\n\nSubcommands:\n  trust    Install the proxy's TLS certificate into the system trust store",
         "name": "proxy",
         "aliases": [],
         "hidden_aliases": [],
