@@ -1,12 +1,13 @@
 use crate::Result;
 use crate::cli::logs::{collect_startup_logs, print_startup_logs_block};
+use crate::cli::picker;
 use crate::daemon_id::DaemonId;
+use crate::daemon_list::get_all_daemons;
 use crate::ipc::batch::StartOptions;
 use crate::ipc::client::IpcClient;
 use crate::pitchfork_toml::PitchforkToml;
 use crate::ui::style::{ncyan, nstyle};
 use itertools::Itertools;
-use miette::ensure;
 use std::sync::Arc;
 
 /// Restarts a daemon (stops then starts it)
@@ -88,11 +89,6 @@ pub struct Restart {
 
 impl Restart {
     pub async fn run(&self) -> Result<()> {
-        ensure!(
-            self.local || self.global || self.all || !self.id.is_empty() || self.group.is_some(),
-            "At least one daemon ID, --group, or one of --all / --local / --global must be provided"
-        );
-
         let ipc = Arc::new(IpcClient::connect(true).await?);
 
         let ids: Vec<DaemonId> = if self.all {
@@ -101,6 +97,26 @@ impl Restart {
             ipc.get_running_configured_daemons(self.global).await?
         } else {
             PitchforkToml::resolve_ids_and_group(&self.id, self.group.as_deref())?
+        };
+
+        let ids = if ids.is_empty() {
+            // No arguments provided — show interactive picker with running daemons
+            let entries = get_all_daemons(&ipc).await?;
+            let running: Vec<_> = entries
+                .into_iter()
+                .filter(|e| e.daemon.status.is_running())
+                .collect();
+            let items = picker::items_from_entries(&running);
+            match picker::select_multiple(
+                "Select daemons to restart",
+                "↑/↓ to navigate, space to toggle, enter to confirm",
+                &items,
+            )? {
+                Some(selected) => selected.into_iter().cloned().collect(),
+                None => return Ok(()),
+            }
+        } else {
+            ids
         };
 
         if ids.is_empty() {

@@ -1,8 +1,9 @@
 use crate::Result;
+use crate::cli::picker;
 use crate::daemon_id::DaemonId;
+use crate::daemon_list::get_all_daemons;
 use crate::ipc::client::IpcClient;
 use crate::pitchfork_toml::PitchforkToml;
-use miette::ensure;
 use std::sync::Arc;
 
 /// Sends a stop signal to a daemon
@@ -75,11 +76,6 @@ pub struct Stop {
 
 impl Stop {
     pub async fn run(&self) -> Result<()> {
-        ensure!(
-            self.local || self.global || self.all || !self.id.is_empty() || self.group.is_some(),
-            "At least one daemon ID, --group, or one of --all / --local / --global must be provided"
-        );
-
         let ipc = Arc::new(IpcClient::connect(false).await?);
 
         let ids: Vec<DaemonId> = if self.all {
@@ -88,6 +84,26 @@ impl Stop {
             ipc.get_running_configured_daemons(self.global).await?
         } else {
             PitchforkToml::resolve_ids_and_group(&self.id, self.group.as_deref())?
+        };
+
+        let ids = if ids.is_empty() {
+            // No arguments provided — show interactive picker with running daemons
+            let entries = get_all_daemons(&ipc).await?;
+            let running: Vec<_> = entries
+                .into_iter()
+                .filter(|e| e.daemon.status.is_running())
+                .collect();
+            let items = picker::items_from_entries(&running);
+            match picker::select_multiple(
+                "Select daemons to stop",
+                "↑/↓ to navigate, space to toggle, enter to confirm",
+                &items,
+            )? {
+                Some(selected) => selected.into_iter().cloned().collect(),
+                None => return Ok(()),
+            }
+        } else {
+            ids
         };
 
         if ids.is_empty() {

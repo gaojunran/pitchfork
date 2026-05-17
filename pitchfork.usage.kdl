@@ -275,7 +275,7 @@ cmd start help="Starts a daemon from a pitchfork.toml file" {
 cmd status help="Display the status of a daemon" {
     alias stat
     long_help "Display the status of a daemon\n\nShows detailed information about a single daemon including its PID and\ncurrent status (running, stopped, failed, etc.).\n\nExample:\n  pitchfork status api\n\nOutput:\n  Name: api\n  PID: 12345\n  Status: running"
-    arg <ID> help="Name of the daemon to check"
+    arg "[ID]" help="Name of the daemon to check" required=#false
 }
 cmd stop help="Sends a stop signal to a daemon" {
     alias kill

@@ -1,5 +1,8 @@
 use crate::Result;
 use crate::cli::list::build_proxy_url;
+use crate::cli::picker;
+use crate::daemon_list::get_all_daemons;
+use crate::ipc::client::IpcClient;
 use crate::pitchfork_toml::PitchforkToml;
 use crate::settings::settings;
 use crate::state_file::StateFile;
@@ -25,13 +28,27 @@ Output:
 )]
 pub struct Status {
     /// Name of the daemon to check
-    pub id: String,
+    pub id: Option<String>,
 }
 
 impl Status {
     pub async fn run(&self) -> Result<()> {
-        // Resolve the daemon ID to a qualified ID
-        let qualified_id = PitchforkToml::resolve_id(&self.id)?;
+        let qualified_id = if let Some(ref id) = self.id {
+            PitchforkToml::resolve_id(id)?
+        } else {
+            // No argument provided — show interactive picker
+            let client = IpcClient::connect(true).await?;
+            let entries = get_all_daemons(&client).await?;
+            let items = picker::items_from_entries(&entries);
+            match picker::select_single(
+                "Select a daemon",
+                "↑/↓ to navigate, enter to confirm",
+                &items,
+            )? {
+                Some(id) => id.clone(),
+                None => return Ok(()),
+            }
+        };
         let global_slugs = settings()
             .proxy
             .enable

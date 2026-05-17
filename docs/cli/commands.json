@@ -1845,15 +1845,15 @@
         "full_cmd": [
           "status"
         ],
-        "usage": "status <ID>",
+        "usage": "status [ID]",
         "subcommands": {},
         "args": [
           {
             "name": "ID",
-            "usage": "<ID>",
+            "usage": "[ID]",
             "help": "Name of the daemon to check",
             "help_first_line": "Name of the daemon to check",
-            "required": true,
+            "required": false,
             "double_dash": "Optional",
             "hide": false
           }

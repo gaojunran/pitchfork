@@ -12,6 +12,7 @@ mod enable;
 mod list;
 pub mod logs;
 mod mcp;
+mod picker;
 mod proxy;
 mod restart;
 mod run;

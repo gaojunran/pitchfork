@@ -1,14 +1,15 @@
 use crate::Result;
 use crate::cli::list::build_proxy_url;
 use crate::cli::logs::{collect_startup_logs, print_startup_logs_block};
+use crate::cli::picker;
 use crate::daemon_id::DaemonId;
+use crate::daemon_list::get_all_daemons;
 use crate::ipc::batch::StartOptions;
 use crate::ipc::client::IpcClient;
 use crate::pitchfork_toml::PitchforkToml;
 use crate::settings::settings;
 use crate::ui::style::{ncyan, ndim, nstyle};
 use itertools::Itertools;
-use miette::ensure;
 use std::sync::Arc;
 
 /// Starts a daemon from a pitchfork.toml file
@@ -109,11 +110,6 @@ pub struct Start {
 
 impl Start {
     pub async fn run(&self) -> Result<()> {
-        ensure!(
-            self.local || self.global || self.all || !self.id.is_empty() || self.group.is_some(),
-            "At least one daemon ID, --group, or one of --all / --local / --global must be provided"
-        );
-
         let ipc = Arc::new(IpcClient::connect(true).await?);
 
         // Compute daemon IDs to start
@@ -125,6 +121,22 @@ impl Start {
             IpcClient::get_local_configured_daemons()?
         } else {
             PitchforkToml::resolve_ids_and_group(&self.id, self.group.as_deref())?
+        };
+
+        let ids = if ids.is_empty() {
+            // No arguments provided — show interactive picker
+            let entries = get_all_daemons(&ipc).await?;
+            let items = picker::items_from_entries(&entries);
+            match picker::select_multiple(
+                "Select daemons to start",
+                "↑/↓ to navigate, space to toggle, enter to confirm",
+                &items,
+            )? {
+                Some(selected) => selected.into_iter().cloned().collect(),
+                None => return Ok(()),
+            }
+        } else {
+            ids
         };
 
         if ids.is_empty() {
