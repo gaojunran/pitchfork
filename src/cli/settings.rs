@@ -1,7 +1,7 @@
 use crate::Result;
 use crate::env;
 use crate::pitchfork_toml::PitchforkToml;
-use crate::settings::{SettingsPartial, SETTINGS_META, settings};
+use crate::settings::{SETTINGS_META, SettingsPartial, settings};
 use clap::Parser;
 use miette::bail;
 use std::path::PathBuf;
@@ -104,10 +104,7 @@ impl ListCmd {
                 }
             }
             let default = info.default_value.unwrap_or("(none)");
-            let env_hint = info
-                .env_var
-                .map(|e| format!(" [{e}]"))
-                .unwrap_or_default();
+            let env_hint = info.env_var.map(|e| format!(" [{e}]")).unwrap_or_default();
             println!("{key} ({}) default={default}{env_hint}", info.typ);
             if !info.description.is_empty() {
                 let desc = info.description.lines().next().unwrap_or("");
@@ -210,7 +207,9 @@ fn validate_setting_key(key: &str) -> Result<()> {
         .collect();
 
     if suggestions.is_empty() {
-        bail!("unknown setting '{key}'. Run 'pitchfork settings list' to see all available settings");
+        bail!(
+            "unknown setting '{key}'. Run 'pitchfork settings list' to see all available settings"
+        );
     }
 
     suggestions.sort();
@@ -225,26 +224,16 @@ fn validate_setting_value(key: &str, value: &str) -> Result<()> {
     let info = meta.get(key).unwrap();
 
     match info.typ {
-        "Bool" => {
-            if value != "true" && value != "false" {
-                bail!(
-                    "invalid boolean value '{value}' for '{key}'. Expected 'true' or 'false'"
-                );
-            }
+        "Bool" if value != "true" && value != "false" => {
+            bail!("invalid boolean value '{value}' for '{key}'. Expected 'true' or 'false'");
         }
-        "Integer" => {
-            if value.parse::<i64>().is_err() {
-                bail!(
-                    "invalid integer value '{value}' for '{key}'. Expected a number"
-                );
-            }
+        "Integer" if value.parse::<i64>().is_err() => {
+            bail!("invalid integer value '{value}' for '{key}'. Expected a number");
         }
-        "Duration" => {
-            if humantime::parse_duration(value).is_err() {
-                bail!(
-                    "invalid duration value '{value}' for '{key}'. Expected a duration like '10s', '5m', '1h', '500ms'"
-                );
-            }
+        "Duration" if humantime::parse_duration(value).is_err() => {
+            bail!(
+                "invalid duration value '{value}' for '{key}'. Expected a duration like '10s', '5m', '1h', '500ms'"
+            );
         }
         "String" | "Path" => {}
         _ => {}
@@ -371,11 +360,7 @@ fn get_proxy_value(g: &crate::settings::SettingsProxy, field: &str) -> String {
     }
 }
 
-fn apply_setting_to_partial(
-    partial: &mut SettingsPartial,
-    key: &str,
-    value: &str,
-) -> Result<()> {
+fn apply_setting_to_partial(partial: &mut SettingsPartial, key: &str, value: &str) -> Result<()> {
     let parts: Vec<&str> = key.split('.').collect();
     if parts.len() != 2 {
         bail!("setting key must be in 'group.field' format (e.g., 'general.log_level')");
@@ -407,9 +392,9 @@ fn parse_bool_value(value: &str) -> Result<bool> {
 }
 
 fn parse_int_value(value: &str) -> Result<i64> {
-    value.parse::<i64>().map_err(|_| {
-        miette::miette!("invalid integer value '{value}'. Expected a number")
-    })
+    value
+        .parse::<i64>()
+        .map_err(|_| miette::miette!("invalid integer value '{value}'. Expected a number"))
 }
 
 fn apply_general_value(
@@ -610,8 +595,8 @@ fn levenshtein_distance(a: &str, b: &str) -> usize {
     for (i, row) in matrix.iter_mut().enumerate() {
         row[0] = i;
     }
-    for j in 0..=b_len {
-        matrix[0][j] = j;
+    for (j, val) in matrix[0].iter_mut().enumerate().take(b_len + 1) {
+        *val = j;
     }
 
     for (i, a_char) in a.chars().enumerate() {

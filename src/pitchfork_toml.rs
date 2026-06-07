@@ -1140,6 +1140,11 @@ impl PitchforkToml {
             // Convert back to raw format for writing (use short names as keys)
             let mut raw = PitchforkTomlRaw {
                 namespace: self.namespace.clone(),
+                settings: if self.settings.has_any_set() {
+                    Some(self.settings.clone())
+                } else {
+                    None
+                },
                 ..PitchforkTomlRaw::default()
             };
             for (id, daemon) in &self.daemons {

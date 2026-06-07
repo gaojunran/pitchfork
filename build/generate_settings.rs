@@ -572,6 +572,7 @@ fn generate_partial_struct_and_nested(
     let partial_struct_name = format!("{struct_name}Partial");
     let partial_ident = format_ident!("{}", partial_struct_name);
     let mut fields = Vec::new();
+    let mut skip_fns = Vec::new();
 
     for (key, value) in table {
         let field_ident = format_ident!("{}", key);
@@ -595,9 +596,17 @@ fn generate_partial_struct_and_nested(
                 // Nested group: non-Option field, defaults to all-None partial
                 let child_struct_name = format!("{}{}", struct_name, key.to_upper_camel_case());
                 let child_partial_ident = format_ident!("{}Partial", child_struct_name);
+                let skip_fn_name = format!("{key}_is_empty");
+                let skip_fn_lit = &skip_fn_name as &str;
                 fields.push(quote! {
-                    #[serde(default)]
+                    #[serde(default, skip_serializing_if = #skip_fn_lit)]
                     pub #field_ident: #child_partial_ident
+                });
+                let skip_fn_ident = format_ident!("{}", skip_fn_name);
+                skip_fns.push(quote! {
+                    pub fn #skip_fn_ident(v: &#child_partial_ident) -> bool {
+                        !v.has_any_set()
+                    }
                 });
             }
         }
@@ -609,6 +618,8 @@ fn generate_partial_struct_and_nested(
         pub struct #partial_ident {
             #(#fields),*
         }
+
+        #(#skip_fns)*
     });
 
     Ok(tokens)
