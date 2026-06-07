@@ -1130,38 +1130,19 @@ impl Supervisor {
             // --- Phase 2: Fire hooks ---
             // Hooks in the monitor task are always fire-and-forget to avoid
             // blocking the monitor task. See docs for known limitations.
+            //
+            // When stop() initiated the shutdown (is_stopping = true), the monitor
+            // task does NOT fire on_stop/on_exit — stop() owns those hooks to
+            // avoid a double-fire race. The monitor only handles state cleanup
+            // (setting pid = None, updating status) when stop() hasn't already
+            // done so (already_stopped = true).
             let hook_extra_env = vec![
                 ("PITCHFORK_EXIT_CODE".to_string(), exit_code.to_string()),
                 ("PITCHFORK_EXIT_REASON".to_string(), exit_reason.to_string()),
             ];
 
-            // Determine which hooks to fire based on exit reason.
-            // When stop() already ran the hooks (already_stopped = true),
-            // skip on_stop + on_exit to avoid double-firing.
-            if !already_stopped {
+            if !already_stopped && !is_stopping {
                 match exit_reason {
-                    "stop" => {
-                        fire_hook(
-                            HookType::OnStop,
-                            id.clone(),
-                            daemon_dir.clone(),
-                            hook_retry_count,
-                            hook_recovery_count,
-                            hook_daemon_env.clone(),
-                            hook_extra_env.clone(),
-                        )
-                        .await;
-                        fire_hook(
-                            HookType::OnExit,
-                            id.clone(),
-                            daemon_dir.clone(),
-                            hook_retry_count,
-                            hook_recovery_count,
-                            hook_daemon_env.clone(),
-                            hook_extra_env.clone(),
-                        )
-                        .await;
-                    }
                     "exit" => {
                         fire_hook(
                             HookType::OnExit,
@@ -1175,9 +1156,6 @@ impl Supervisor {
                         .await;
                     }
                     _ if hook_recovery_count >= hook_recovery.count() => {
-                        // Daemon crashed and recovery is exhausted.
-                        // If daemon never became ready, this is a startup failure (on_fail).
-                        // If daemon was ready before, this is a runtime crash (on_crash).
                         if !ready_notified {
                             fire_hook(
                                 HookType::OnFail,
@@ -1425,6 +1403,8 @@ impl Supervisor {
             } else {
                 // Daemon exists in state but has no PID — it may have already
                 // exited. Run on_exit hook for cleanup (fire-and-forget).
+                // Note: this may double-fire on_exit if the monitor task already
+                // ran it, but on_exit is fire-and-forget so the impact is limited.
                 let on_exit_dir = daemon.dir.clone().unwrap_or_else(|| env::CWD.clone());
                 let on_exit_env = daemon.env.clone();
                 let (exit_code, exit_reason) = daemon_exit_info(&daemon);

@@ -286,6 +286,14 @@ on_exit = "touch {}"
         String::from_utf8_lossy(&output.stderr)
     );
 
+    // on_exit is fire-and-forget, so poll for the marker file
+    for _ in 0..30 {
+        if marker.exists() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+
     assert!(
         marker.exists(),
         "on_exit hook should have created marker file"
@@ -600,5 +608,14 @@ on_exit = "touch {}"
     );
 
     assert!(pre_stop_marker.exists(), "pre_stop hook should have run");
+
+    // on_exit is fire-and-forget, so poll for the marker file
+    for _ in 0..30 {
+        if on_exit_marker.exists() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+
     assert!(on_exit_marker.exists(), "on_exit hook should have run");
 }

@@ -113,7 +113,7 @@ pub(crate) async fn run_hook(
     daemon_env: Option<IndexMap<String, String>>,
     extra_env: Vec<(String, String)>,
 ) -> crate::Result<()> {
-    let pt = PitchforkToml::all_merged().map_err(|e| {
+    let pt = PitchforkToml::all_merged_all_namespaces().map_err(|e| {
         miette::miette!("failed to load config for {hook_type} hook of daemon {daemon_id}: {e}")
     })?;
 
@@ -168,7 +168,7 @@ async fn run_blocking_hook(
     let cmd = match render_hook_template(
         &config.run,
         daemon_id,
-        &PitchforkToml::all_merged().unwrap_or_default(),
+        &PitchforkToml::all_merged_all_namespaces().unwrap_or_default(),
     )
     .await
     {
@@ -266,7 +266,7 @@ async fn run_blocking_hook(
 
 /// Fire a hook command as a fire-and-forget tokio task.
 ///
-/// Reads the hook command from fresh config (`PitchforkToml::all_merged()`),
+/// Reads the hook command from fresh config (`PitchforkToml::all_merged_all_namespaces()`),
 /// then spawns it in the background. Errors are logged but never block the caller.
 ///
 /// The spawned task is also registered in `SUPERVISOR.hook_tasks` so that
