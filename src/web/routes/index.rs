@@ -44,11 +44,18 @@ fn get_stats() -> crate::Result<(usize, usize, usize, usize)> {
 }
 
 pub async fn stats_partial() -> Html<String> {
-    let (total, running_count, stopped_count, errored_count) = match get_stats() {
-        Ok(stats) => stats,
-        Err(e) => {
+    let result = tokio::task::spawn_blocking(get_stats).await;
+    let (total, running_count, stopped_count, errored_count) = match result {
+        Ok(Ok(stats)) => stats,
+        Ok(Err(e)) => {
             return Html(format!(
                 r#"<div class="error">Failed to load configuration: {}</div>"#,
+                crate::web::helpers::html_escape(&e.to_string())
+            ));
+        }
+        Err(e) => {
+            return Html(format!(
+                r#"<div class="error">Internal error: {}</div>"#,
                 crate::web::helpers::html_escape(&e.to_string())
             ));
         }
@@ -78,14 +85,29 @@ pub async fn stats_partial() -> Html<String> {
 pub async fn index() -> Html<String> {
     let bp = bp();
 
-    let state = StateFile::read(&*env::PITCHFORK_STATE_FILE)
-        .unwrap_or_else(|_| StateFile::new(env::PITCHFORK_STATE_FILE.clone()));
+    let state_file_path = env::PITCHFORK_STATE_FILE.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let state = StateFile::read(&*state_file_path)
+            .unwrap_or_else(|_| StateFile::new(env::PITCHFORK_STATE_FILE.clone()));
+        let pt = match PitchforkToml::all_merged() {
+            Ok(pt) => pt,
+            Err(e) => return Err(e),
+        };
+        Ok((state, pt))
+    })
+    .await;
 
-    let pt = match PitchforkToml::all_merged() {
-        Ok(pt) => pt,
-        Err(e) => {
+    let (state, pt) = match result {
+        Ok(Ok(data)) => data,
+        Ok(Err(e)) => {
             return Html(format!(
                 r#"<h1>Error</h1><p class="error">Failed to load configuration: {}</p>"#,
+                crate::web::helpers::html_escape(&e.to_string())
+            ));
+        }
+        Err(e) => {
+            return Html(format!(
+                r#"<h1>Error</h1><p class="error">Internal error: {}</p>"#,
                 crate::web::helpers::html_escape(&e.to_string())
             ));
         }

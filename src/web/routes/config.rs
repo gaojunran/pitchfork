@@ -108,7 +108,9 @@ fn validate_path(path: &PathBuf) -> Option<PathBuf> {
 
 pub async fn list() -> Html<String> {
     let bp = bp();
-    let paths = get_allowed_paths();
+    let paths = tokio::task::spawn_blocking(get_allowed_paths)
+        .await
+        .unwrap_or_default();
 
     let mut file_list = String::new();
     for path in paths {
@@ -177,13 +179,15 @@ pub async fn edit(Query(query): Query<EditQuery>) -> Html<String> {
     };
 
     // Use canonical path for file operations
-    let content_value = if canonical_path.exists() {
-        match std::fs::read_to_string(&canonical_path) {
-            Ok(c) => html_escape(&c),
-            Err(e) => format!("# Error reading file: {e}"),
-        }
-    } else {
-        r#"# New pitchfork.toml configuration
+    let canonical_path_clone = canonical_path.clone();
+    let content_value = tokio::task::spawn_blocking(move || {
+        if canonical_path_clone.exists() {
+            match std::fs::read_to_string(&canonical_path_clone) {
+                Ok(c) => html_escape(&c),
+                Err(e) => format!("# Error reading file: {e}"),
+            }
+        } else {
+            r#"# New pitchfork.toml configuration
 # Example:
 #
 # [daemons.myapp]
@@ -191,8 +195,11 @@ pub async fn edit(Query(query): Query<EditQuery>) -> Html<String> {
 # retry = 3
 # ready_delay = 5
 "#
-        .to_string()
-    };
+            .to_string()
+        }
+    })
+    .await
+    .unwrap_or_else(|_| r#"# Error reading file"#.to_string());
 
     let encoded_path = html_escape(&query.path);
     let display_path = html_escape(&path.display().to_string());
@@ -231,8 +238,12 @@ pub struct ConfigForm {
 
 pub async fn validate(Form(form): Form<ConfigForm>) -> Html<String> {
     let path = PathBuf::from(&form.path);
-    match PitchforkToml::parse_str(&form.content, &path) {
-        Ok(config) => {
+    let content = form.content.clone();
+    let result =
+        tokio::task::spawn_blocking(move || PitchforkToml::parse_str(&content, &path)).await;
+
+    match result {
+        Ok(Ok(config)) => {
             let daemon_count = config.daemons.len();
             let daemon_names: Vec<String> = config
                 .daemons
@@ -249,14 +260,14 @@ pub async fn validate(Form(form): Form<ConfigForm>) -> Html<String> {
                 daemon_names.join(", ")
             ))
         }
-        Err(e) => Html(format!(
+        _ => Html(format!(
             r#"
                 <div class="validation-error">
                     <strong>Invalid config</strong>
                     <pre>{}</pre>
                 </div>
             "#,
-            html_escape(&format!("{e:?}"))
+            html_escape(&format!("{:?}", result.err()))
         )),
     }
 }
@@ -286,20 +297,27 @@ pub async fn save(Form(form): Form<ConfigForm>) -> Html<String> {
         ));
     }
 
-    // Create parent directories if needed (using canonical path)
-    if let Some(parent) = canonical_path.parent()
-        && !parent.exists()
-        && let Err(e) = std::fs::create_dir_all(parent)
-    {
-        return Html(format!(
-            r#"<div class="error">Failed to create directory: {}</div>"#,
-            html_escape(&e.to_string())
-        ));
-    }
+    let canonical_path_clone = canonical_path.clone();
+    let content = form.content.clone();
+    let save_result = tokio::task::spawn_blocking(move || {
+        // Create parent directories if needed (using canonical path)
+        if let Some(parent) = canonical_path_clone.parent()
+            && !parent.exists()
+            && let Err(e) = std::fs::create_dir_all(parent)
+        {
+            return Err(e);
+        }
 
-    // Write the file using canonical path to prevent symlink attacks
-    match std::fs::write(&canonical_path, &form.content) {
-        Ok(_) => Html(format!(
+        // Write the file using canonical path to prevent symlink attacks
+        match std::fs::write(&canonical_path_clone, &content) {
+            Ok(_) => Ok(()),
+            Err(e) => Err(e),
+        }
+    })
+    .await;
+
+    match save_result {
+        Ok(Ok(_)) => Html(format!(
             r#"
             <div class="save-success">
                 <strong>Saved successfully!</strong>
@@ -308,14 +326,14 @@ pub async fn save(Form(form): Form<ConfigForm>) -> Html<String> {
         "#,
             html_escape(&canonical_path.display().to_string())
         )),
-        Err(e) => Html(format!(
+        _ => Html(format!(
             r#"
             <div class="error">
                 <strong>Failed to save</strong>
                 <p>{}</p>
             </div>
         "#,
-            html_escape(&e.to_string())
+            html_escape(&save_result.err().map(|e| e.to_string()).unwrap_or_default())
         )),
     }
 }

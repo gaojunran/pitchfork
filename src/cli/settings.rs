@@ -1,4 +1,5 @@
 use crate::Result;
+use crate::cli::daemons::resolve_project_config_path;
 use crate::env;
 use crate::pitchfork_toml::PitchforkToml;
 use crate::settings::{SETTINGS_META, SettingsPartial, settings};
@@ -6,10 +7,12 @@ use clap::Parser;
 use miette::bail;
 use std::path::PathBuf;
 
+const LOG_LEVEL_VALUES: &[&str] = &["trace", "debug", "info", "warn", "error"];
+
 /// View and modify pitchfork settings
 #[derive(Debug, Parser)]
 #[clap(
-    visible_alias = "set",
+    visible_alias = "setting",
     verbatim_doc_comment,
     long_about = "\
 View and modify pitchfork settings
@@ -32,7 +35,8 @@ Examples:
   pitchfork settings get general.log_level  Get a specific setting
   pitchfork settings set general.log_level debug
   pitchfork settings set web.auto_start true --global
-  pitchfork settings set supervisor.stop_timeout 10s"
+  pitchfork settings set supervisor.stop_timeout 10s --local
+  pitchfork settings set supervisor.stop_timeout 10s --project"
 )]
 pub struct Settings {
     #[clap(subcommand)]
@@ -78,7 +82,10 @@ pub struct SetCmd {
     /// Write to the user-level global config (~/.config/pitchfork/config.toml)
     #[clap(long)]
     global: bool,
-    /// Write to the project-level config (default: nearest pitchfork.toml)
+    /// Write to the project-level pitchfork.local.toml (overrides pitchfork.toml)
+    #[clap(long)]
+    local: bool,
+    /// Write to the project-level pitchfork.toml (default if no flag specified)
     #[clap(long)]
     project: bool,
 }
@@ -88,7 +95,7 @@ impl Settings {
         match self.command {
             Some(Commands::List(cmd)) => cmd.run(),
             Some(Commands::Get(cmd)) => cmd.run(),
-            Some(Commands::Set(cmd)) => cmd.run(),
+            Some(Commands::Set(cmd)) => cmd.run().await,
             None => show_all_settings(),
         }
     }
@@ -128,13 +135,13 @@ impl GetCmd {
 }
 
 impl SetCmd {
-    fn run(&self) -> Result<()> {
+    async fn run(&self) -> Result<()> {
         let key = &self.key;
         let value = &self.value;
         validate_setting_key(key)?;
         validate_setting_value(key, value)?;
 
-        let config_path = resolve_config_path(self.global, self.project)?;
+        let config_path = resolve_config_path(self.global, self.local, self.project)?;
 
         let mut pt = if config_path.exists() {
             PitchforkToml::read(&config_path)?
@@ -157,6 +164,9 @@ impl SetCmd {
 
         let path_display = config_path.display();
         println!("set {key} = {value} in {path_display}");
+
+        notify_supervisor_reload().await;
+
         Ok(())
     }
 }
@@ -182,7 +192,11 @@ fn show_all_settings() -> Result<()> {
         let is_default = current == default;
 
         if is_default {
-            println!("# {field_name} = {current}  (default)");
+            if current.is_empty() {
+                println!("# {field_name}  (default: empty)");
+            } else {
+                println!("# {field_name} = {current}  (default)");
+            }
         } else {
             println!("{field_name} = {current}");
         }
@@ -235,7 +249,15 @@ fn validate_setting_value(key: &str, value: &str) -> Result<()> {
                 "invalid duration value '{value}' for '{key}'. Expected a duration like '10s', '5m', '1h', '500ms'"
             );
         }
-        "String" | "Path" => {}
+        "String" | "Path"
+            if (key == "general.log_level" || key == "general.log_file_level")
+                && !LOG_LEVEL_VALUES.contains(&value) =>
+        {
+            bail!(
+                "invalid log level '{value}' for '{key}'. Expected one of: {}",
+                LOG_LEVEL_VALUES.join(", ")
+            );
+        }
         _ => {}
     }
 
@@ -548,37 +570,14 @@ fn apply_proxy_value(
     Ok(())
 }
 
-fn resolve_config_path(global: bool, project: bool) -> Result<PathBuf> {
-    if global && project {
-        bail!("cannot specify both --global and --project");
+fn resolve_config_path(global: bool, local: bool, project: bool) -> Result<PathBuf> {
+    if global && (local || project) {
+        bail!("cannot combine --global with --local or --project");
     }
-
     if global {
-        let path = env::PITCHFORK_GLOBAL_CONFIG_USER.clone();
-        return Ok(path);
+        return Ok(env::PITCHFORK_GLOBAL_CONFIG_USER.clone());
     }
-
-    let paths = PitchforkToml::list_paths();
-    let project_paths: Vec<_> = paths
-        .iter()
-        .filter(|p| {
-            p.file_name()
-                .map(|n| n == "pitchfork.toml" || n == "pitchfork.local.toml")
-                .unwrap_or(false)
-        })
-        .collect();
-
-    if project {
-        project_paths
-            .last()
-            .map(|p| (*p).clone())
-            .ok_or_else(|| miette::miette!("no project-level pitchfork.toml found"))
-    } else {
-        Ok(project_paths
-            .last()
-            .map(|p| (*p).clone())
-            .unwrap_or_else(|| env::CWD.join("pitchfork.toml")))
-    }
+    resolve_project_config_path(local, project, false)
 }
 
 fn levenshtein_distance(a: &str, b: &str) -> usize {
@@ -609,4 +608,23 @@ fn levenshtein_distance(a: &str, b: &str) -> usize {
     }
 
     matrix[a_len][b_len]
+}
+
+/// Best-effort notification to the supervisor to reload settings.
+///
+/// If the supervisor is running, sends a ReloadConfig IPC request so it
+/// picks up the config change immediately. If the supervisor is not running,
+/// silently succeeds (settings will be fresh on next supervisor start).
+async fn notify_supervisor_reload() {
+    use crate::ipc::client::IpcClient;
+    match IpcClient::connect(false).await {
+        Ok(ipc) => {
+            if let Err(e) = ipc.reload_config().await {
+                debug!("failed to notify supervisor of config reload: {e}");
+            }
+        }
+        Err(_) => {
+            debug!("supervisor not running, skipping config reload notification");
+        }
+    }
 }

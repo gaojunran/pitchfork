@@ -7,7 +7,7 @@ mod boot;
 mod cd;
 mod clean;
 mod completion;
-mod config;
+mod daemons;
 mod disable;
 mod enable;
 mod list;
@@ -41,7 +41,7 @@ enum Commands {
     Boot(boot::Boot),
     Cd(cd::Cd),
     Clean(clean::Clean),
-    Config(config::Config),
+    Daemons(daemons::Daemons),
     Completion(completion::Completion),
     Disable(disable::Disable),
     Enable(enable::Enable),
@@ -69,7 +69,7 @@ pub async fn run() -> Result<()> {
         Commands::Boot(boot) => boot.run().await,
         Commands::Cd(cd) => cd.run().await,
         Commands::Clean(clean) => clean.run().await,
-        Commands::Config(config) => config.run().await,
+        Commands::Daemons(daemons) => daemons.run().await,
         Commands::Completion(completion) => completion.run().await,
         Commands::Disable(disable) => disable.run().await,
         Commands::Enable(enable) => enable.run().await,

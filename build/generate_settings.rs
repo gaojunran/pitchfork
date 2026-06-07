@@ -166,12 +166,48 @@ fn generate_settings_struct(settings: &Table) -> Result<String, Box<dyn std::err
             #duration_helpers
         }
 
-        /// Global settings instance
-        static SETTINGS: std::sync::OnceLock<Settings> = std::sync::OnceLock::new();
+        /// Global settings instance (RwLock to support runtime reload)
+        static SETTINGS: std::sync::RwLock<Option<Settings>> = std::sync::RwLock::new(None);
 
         /// Get the global settings instance
         pub fn settings() -> &'static Settings {
-            SETTINGS.get_or_init(Settings::load)
+            // Fast path: if already initialized, return a reference.
+            // RwLock read lock is cheap and allows concurrent readers.
+            {
+                let lock = SETTINGS.read().unwrap();
+                if let Some(ref s) = *lock {
+                    // SAFETY: The Settings value is pinned behind the RwLock
+                    // and will never be moved or dropped until the process exits.
+                    // We only replace it (via reload_settings) with a new value,
+                    // never mutating in place. The reference remains valid as long
+                    // as the static lives, which is the entire program duration.
+                    unsafe {
+                        return &*(s as *const Settings);
+                    }
+                }
+            }
+            // Slow path: initialize on first access
+            let mut lock = SETTINGS.write().unwrap();
+            if let Some(ref s) = *lock {
+                unsafe {
+                    return &*(s as *const Settings);
+                }
+            }
+            let s = Settings::load();
+            *lock = Some(s);
+            unsafe {
+                return &*((*lock).as_ref().unwrap() as *const Settings);
+            }
+        }
+
+        /// Reload settings from config files.
+        ///
+        /// Called when the supervisor receives a ReloadConfig IPC request,
+        /// typically after `pitchfork settings set` modifies a config file.
+        pub fn reload_settings() {
+            let new_settings = Settings::load();
+            let mut lock = SETTINGS.write().unwrap();
+            *lock = Some(new_settings);
         }
     };
 
@@ -182,7 +218,7 @@ fn generate_settings_struct(settings: &Table) -> Result<String, Box<dyn std::err
         #[allow(unused_imports)]
         use std::time::Duration;
         #[allow(unused_imports)]
-        use std::sync::OnceLock;
+        use std::sync::RwLock;
 
         #tokens
     };

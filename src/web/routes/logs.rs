@@ -63,44 +63,83 @@ fn base_html(title: &str, content: &str) -> String {
 
 pub async fn index() -> Html<String> {
     let bp = bp();
-    let state = match StateFile::read(&*env::PITCHFORK_STATE_FILE) {
-        Ok(state) => state,
+    let state_file_path = env::PITCHFORK_STATE_FILE.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let state = match StateFile::read(&*state_file_path) {
+            Ok(state) => state,
+            Err(e) => return Err(format!("Failed to read state file: {e}")),
+        };
+        let pt = match PitchforkToml::all_merged() {
+            Ok(pt) => pt,
+            Err(e) => return Err(format!("Failed to load configuration: {e}")),
+        };
+
+        let pitchfork_id = DaemonId::pitchfork();
+        let mut ids: Vec<String> = state
+            .daemons
+            .keys()
+            .filter(|id| **id != pitchfork_id)
+            .map(|id| id.to_string())
+            .collect();
+
+        for id in pt.daemons.keys() {
+            let id_str = id.to_string();
+            if !ids.contains(&id_str) {
+                ids.push(id_str);
+            }
+        }
+
+        ids.sort();
+
+        let log_lines_limit = settings().web.log_lines.max(0) as usize;
+
+        let initial_logs_by_id: std::collections::HashMap<String, String> = ids
+            .iter()
+            .map(|id| {
+                let log_path = daemon_log_path(id);
+                let logs = if log_path.exists() {
+                    match std::fs::read(&log_path) {
+                        Ok(bytes) => {
+                            let content = String::from_utf8_lossy(&bytes);
+                            let lines: Vec<&str> = content.lines().collect();
+                            let start = if log_lines_limit > 0 && lines.len() > log_lines_limit {
+                                lines.len() - log_lines_limit
+                            } else {
+                                0
+                            };
+                            let stripped = lines[start..].join("\n");
+                            html_escape(&console::strip_ansi_codes(&stripped))
+                        }
+                        Err(_) => String::new(),
+                    }
+                } else {
+                    "No logs available yet.".to_string()
+                };
+                (id.clone(), logs)
+            })
+            .collect();
+
+        Ok((ids, initial_logs_by_id))
+    })
+    .await;
+
+    let (ids, initial_logs_by_id) = match result {
+        Ok(Ok(data)) => data,
+        Ok(Err(e)) => {
+            let content = format!(
+                r#"<h1>Error</h1><p class="error">{}</p><a href="{bp}/" class="btn">Back</a>"#,
+                html_escape(&e)
+            );
+            return Html(base_html("Error", &content));
+        }
         Err(e) => {
             let content = format!(
-                r#"<h1>Error</h1><p class="error">Failed to read state file: {}</p><a href="{bp}/" class="btn">Back</a>"#,
+                r#"<h1>Error</h1><p class="error">Internal error: {}</p><a href="{bp}/" class="btn">Back</a>"#,
                 html_escape(&e.to_string())
             );
             return Html(base_html("Error", &content));
         }
     };
-    let pt = match PitchforkToml::all_merged() {
-        Ok(pt) => pt,
-        Err(e) => {
-            let content = format!(
-                r#"<h1>Error</h1><p class="error">Failed to load configuration: {}</p><a href="{bp}/" class="btn">Back</a>"#,
-                html_escape(&e.to_string())
-            );
-            return Html(base_html("Error", &content));
-        }
-    };
-
-    // Collect all daemon IDs
-    let pitchfork_id = DaemonId::pitchfork();
-    let mut ids: Vec<String> = state
-        .daemons
-        .keys()
-        .filter(|id| **id != pitchfork_id)
-        .map(|id| id.to_string())
-        .collect();
-
-    for id in pt.daemons.keys() {
-        let id_str = id.to_string();
-        if !ids.contains(&id_str) {
-            ids.push(id_str);
-        }
-    }
-
-    ids.sort();
 
     let content = if ids.is_empty() {
         r#"
@@ -122,33 +161,11 @@ pub async fn index() -> Html<String> {
             let is_first = idx == 0;
             let active_class = if is_first { " active" } else { "" };
 
-            // Tab button - use js_id for onclick to prevent JS injection
             tabs.push_str(&format!(
                 r#"<button class="tab{active_class}" onclick="switchTab('{js_id}', event)">{safe_id}</button>"#
             ));
 
-            // Tab content
-            let log_path = daemon_log_path(id);
-
-            let initial_logs = if log_path.exists() {
-                match std::fs::read(&log_path) {
-                    Ok(bytes) => {
-                        let content = String::from_utf8_lossy(&bytes);
-                        let lines: Vec<&str> = content.lines().collect();
-                        let log_lines = settings().web.log_lines.max(0) as usize;
-                        let start = if log_lines > 0 && lines.len() > log_lines {
-                            lines.len() - log_lines
-                        } else {
-                            0
-                        };
-                        let stripped = lines[start..].join("\n");
-                        html_escape(&console::strip_ansi_codes(&stripped))
-                    }
-                    Err(_) => String::new(),
-                }
-            } else {
-                "No logs available yet.".to_string()
-            };
+            let initial_logs = initial_logs_by_id.get(id).cloned().unwrap_or_default();
 
             tab_contents.push_str(&format!(
                 r#"
@@ -257,27 +274,29 @@ pub async fn show(Path(id): Path<String>) -> Html<String> {
     let safe_id = html_escape(&daemon_id.to_string());
     let url_id = url_encode(&daemon_id.to_string());
     let log_path = daemon_id.log_path();
+    let log_lines_limit = settings().web.log_lines.max(0) as usize;
 
-    let initial_logs = if log_path.exists() {
-        match std::fs::read(&log_path) {
-            Ok(bytes) => {
-                // Use lossy conversion to handle invalid UTF-8
-                let content = String::from_utf8_lossy(&bytes);
-                // Get last N lines (configurable via web.log_lines setting)
-                let lines: Vec<&str> = content.lines().collect();
-                let log_lines = settings().web.log_lines.max(0) as usize;
-                let start = if log_lines > 0 && lines.len() > log_lines {
-                    lines.len() - log_lines
-                } else {
-                    0
-                };
-                html_escape(&lines[start..].join("\n"))
+    let initial_logs = tokio::task::spawn_blocking(move || {
+        if log_path.exists() {
+            match std::fs::read(&log_path) {
+                Ok(bytes) => {
+                    let content = String::from_utf8_lossy(&bytes);
+                    let lines: Vec<&str> = content.lines().collect();
+                    let start = if log_lines_limit > 0 && lines.len() > log_lines_limit {
+                        lines.len() - log_lines_limit
+                    } else {
+                        0
+                    };
+                    html_escape(&lines[start..].join("\n"))
+                }
+                Err(_) => String::new(),
             }
-            Err(_) => String::new(),
+        } else {
+            "No logs available yet.".to_string()
         }
-    } else {
-        "No logs available yet.".to_string()
-    };
+    })
+    .await
+    .unwrap_or_default();
 
     let content = format!(
         r#"
@@ -313,26 +332,29 @@ pub async fn lines_partial(Path(id): Path<String>) -> Html<String> {
     };
 
     let log_path = daemon_id.log_path();
+    let log_lines_limit = settings().web.log_lines.max(0) as usize;
 
-    let logs = if log_path.exists() {
-        match std::fs::read(&log_path) {
-            Ok(bytes) => {
-                // Use lossy conversion to handle invalid UTF-8
-                let content = String::from_utf8_lossy(&bytes);
-                let lines: Vec<&str> = content.lines().collect();
-                let log_lines = settings().web.log_lines.max(0) as usize;
-                let start = if log_lines > 0 && lines.len() > log_lines {
-                    lines.len() - log_lines
-                } else {
-                    0
-                };
-                html_escape(&lines[start..].join("\n"))
+    let logs = tokio::task::spawn_blocking(move || {
+        if log_path.exists() {
+            match std::fs::read(&log_path) {
+                Ok(bytes) => {
+                    let content = String::from_utf8_lossy(&bytes);
+                    let lines: Vec<&str> = content.lines().collect();
+                    let start = if log_lines_limit > 0 && lines.len() > log_lines_limit {
+                        lines.len() - log_lines_limit
+                    } else {
+                        0
+                    };
+                    html_escape(&lines[start..].join("\n"))
+                }
+                Err(_) => String::new(),
             }
-            Err(_) => String::new(),
+        } else {
+            String::new()
         }
-    } else {
-        String::new()
-    };
+    })
+    .await
+    .unwrap_or_default();
 
     Html(logs)
 }
@@ -637,10 +659,13 @@ pub async fn clear(Path(id): Path<String>) -> Html<String> {
     };
 
     let log_path = daemon_id.log_path();
-
-    if log_path.exists() {
-        let _ = std::fs::write(&log_path, "");
-    }
+    tokio::task::spawn_blocking(move || {
+        if log_path.exists() {
+            let _ = std::fs::write(&log_path, "");
+        }
+    })
+    .await
+    .ok();
 
     Html("".to_string())
 }

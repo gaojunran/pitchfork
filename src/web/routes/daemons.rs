@@ -248,22 +248,39 @@ pub async fn show(Path(id): Path<String>) -> Html<String> {
 
     let safe_id = html_escape(&id);
     let display_html = format_daemon_id_html(&daemon_id);
-    let state = StateFile::read(&*env::PITCHFORK_STATE_FILE)
-        .unwrap_or_else(|_| StateFile::new(env::PITCHFORK_STATE_FILE.clone()));
-    let pt = match PitchforkToml::all_merged() {
-        Ok(pt) => pt,
-        Err(e) => {
+    let state_file_path = env::PITCHFORK_STATE_FILE.clone();
+    let daemon_id_clone = daemon_id.clone();
+    let state_result = tokio::task::spawn_blocking(move || {
+        let state = StateFile::read(&*state_file_path)
+            .unwrap_or_else(|_| StateFile::new(env::PITCHFORK_STATE_FILE.clone()));
+        let pt = match PitchforkToml::all_merged() {
+            Ok(pt) => pt,
+            Err(e) => return Err(e),
+        };
+        let daemon_info = state.daemons.get(&daemon_id_clone).cloned();
+        let is_disabled = state.disabled.contains(&daemon_id_clone);
+        let config_info = pt.daemons.get(&daemon_id_clone).cloned();
+        Ok((daemon_info, is_disabled, config_info))
+    })
+    .await;
+
+    let (daemon_info, is_disabled, config_info) = match state_result {
+        Ok(Ok(data)) => data,
+        Ok(Err(e)) => {
             let content = format!(
                 r#"<h1>Error</h1><p class="error">Failed to load configuration: {}</p><a href="{bp}/" class="btn">Back</a>"#,
                 html_escape(&e.to_string())
             );
             return Html(base_html("Error", &content));
         }
+        Err(e) => {
+            let content = format!(
+                r#"<h1>Error</h1><p class="error">Internal error: {}</p><a href="{bp}/" class="btn">Back</a>"#,
+                html_escape(&e.to_string())
+            );
+            return Html(base_html("Error", &content));
+        }
     };
-
-    let daemon_info = state.daemons.get(&daemon_id);
-    let config_info = pt.daemons.get(&daemon_id);
-    let is_disabled = state.disabled.contains(&daemon_id);
 
     let url_id = url_encode(&id);
     let content = if let Some(d) = daemon_info {
@@ -366,7 +383,7 @@ pub async fn show(Path(id): Path<String>) -> Html<String> {
             String::new()
         };
 
-        let config_section = if let Some(cfg) = config_info {
+        let config_section = if let Some(ref cfg) = config_info {
             let ready_http = cfg
                 .ready_http
                 .as_ref()
@@ -433,7 +450,7 @@ pub async fn show(Path(id): Path<String>) -> Html<String> {
                     .map(|p| p.display().to_string())
                     .unwrap_or_else(|| "-".into())
             ),
-            html_escape(&get_daemon_command(d)),
+            html_escape(&get_daemon_command(&d)),
             if config_info.is_none() { "Yes" } else { "No" },
             if is_disabled { "Yes" } else { "No" },
             d.retry_count,
@@ -491,9 +508,11 @@ pub async fn start(Path(id): Path<String>, Query(query): Query<StartQuery>) -> H
 
     let safe_id = css_safe_id(&id);
     let display_id = html_escape(&id);
-    let pt = match PitchforkToml::all_merged() {
-        Ok(pt) => pt,
-        Err(e) => {
+    let daemon_id_for_config = daemon_id.clone();
+    let pt_result = tokio::task::spawn_blocking(PitchforkToml::all_merged).await;
+    let pt = match pt_result {
+        Ok(Ok(pt)) => pt,
+        Ok(Err(e)) => {
             let message = format!(
                 r#"Failed to load configuration: {}"#,
                 html_escape(&e.to_string())
@@ -506,10 +525,20 @@ pub async fn start(Path(id): Path<String>, Query(query): Query<StartQuery>) -> H
                 ))
             };
         }
+        Err(e) => {
+            let message = format!("Internal error: {e}");
+            return if query.from.as_deref() == Some("detail") {
+                Html(format!(r#"<div class="error">{message}</div>"#))
+            } else {
+                Html(format!(
+                    r#"<tr id="daemon-{safe_id}"><td colspan="8" class="error">{message}</td></tr>"#
+                ))
+            };
+        }
     };
     let from_detail = query.from.as_deref() == Some("detail");
 
-    let start_error = if let Some(daemon_config) = pt.daemons.get(&daemon_id) {
+    let start_error = if let Some(daemon_config) = pt.daemons.get(&daemon_id_for_config) {
         // Use shared helper to build RunOptions from config
         let opts = StartOptions {
             quiet: true,
@@ -545,8 +574,13 @@ pub async fn start(Path(id): Path<String>, Query(query): Query<StartQuery>) -> H
 
     // Return updated row
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-    let state = StateFile::read(&*env::PITCHFORK_STATE_FILE)
-        .unwrap_or_else(|_| StateFile::new(env::PITCHFORK_STATE_FILE.clone()));
+    let state_file_path = env::PITCHFORK_STATE_FILE.clone();
+    let state = tokio::task::spawn_blocking(move || {
+        StateFile::read(&*state_file_path)
+            .unwrap_or_else(|_| StateFile::new(env::PITCHFORK_STATE_FILE.clone()))
+    })
+    .await
+    .unwrap_or_else(|_| StateFile::new(env::PITCHFORK_STATE_FILE.clone()));
 
     // Return different content based on context
     if from_detail {
@@ -598,12 +632,18 @@ pub async fn stop(Path(id): Path<String>) -> Html<String> {
     let _ = SUPERVISOR.stop(&daemon_id).await;
 
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-    let state = StateFile::read(&*env::PITCHFORK_STATE_FILE)
-        .unwrap_or_else(|_| StateFile::new(env::PITCHFORK_STATE_FILE.clone()));
+    let state_file_path = env::PITCHFORK_STATE_FILE.clone();
+    let daemon_id_for_state = daemon_id.clone();
+    let state = tokio::task::spawn_blocking(move || {
+        StateFile::read(&*state_file_path)
+            .unwrap_or_else(|_| StateFile::new(env::PITCHFORK_STATE_FILE.clone()))
+    })
+    .await
+    .unwrap_or_else(|_| StateFile::new(env::PITCHFORK_STATE_FILE.clone()));
 
-    if let Some(daemon) = state.daemons.get(&daemon_id) {
-        let is_disabled = state.disabled.contains(&daemon_id);
-        Html(daemon_row(&daemon_id, daemon, is_disabled))
+    if let Some(daemon) = state.daemons.get(&daemon_id_for_state) {
+        let is_disabled = state.disabled.contains(&daemon_id_for_state);
+        Html(daemon_row(&daemon_id_for_state, daemon, is_disabled))
     } else {
         Html(format!(
             r#"<tr id="daemon-{safe_id}"><td colspan="8">Stopped</td></tr>"#
@@ -647,11 +687,17 @@ pub async fn enable(Path(id): Path<String>) -> Html<String> {
     let safe_id = css_safe_id(&id);
     let _ = SUPERVISOR.enable(&daemon_id).await;
 
-    let state = StateFile::read(&*env::PITCHFORK_STATE_FILE)
-        .unwrap_or_else(|_| StateFile::new(env::PITCHFORK_STATE_FILE.clone()));
-    if let Some(daemon) = state.daemons.get(&daemon_id) {
-        let is_disabled = state.disabled.contains(&daemon_id);
-        Html(daemon_row(&daemon_id, daemon, is_disabled))
+    let state_file_path = env::PITCHFORK_STATE_FILE.clone();
+    let daemon_id_for_state = daemon_id.clone();
+    let state = tokio::task::spawn_blocking(move || {
+        StateFile::read(&*state_file_path)
+            .unwrap_or_else(|_| StateFile::new(env::PITCHFORK_STATE_FILE.clone()))
+    })
+    .await
+    .unwrap_or_else(|_| StateFile::new(env::PITCHFORK_STATE_FILE.clone()));
+    if let Some(daemon) = state.daemons.get(&daemon_id_for_state) {
+        let is_disabled = state.disabled.contains(&daemon_id_for_state);
+        Html(daemon_row(&daemon_id_for_state, daemon, is_disabled))
     } else {
         Html(format!(
             r#"<tr id="daemon-{safe_id}"><td colspan="8">Enabled</td></tr>"#
@@ -676,11 +722,17 @@ pub async fn disable(Path(id): Path<String>) -> Html<String> {
     let safe_id = css_safe_id(&id);
     let _ = SUPERVISOR.disable(&daemon_id).await;
 
-    let state = StateFile::read(&*env::PITCHFORK_STATE_FILE)
-        .unwrap_or_else(|_| StateFile::new(env::PITCHFORK_STATE_FILE.clone()));
-    if let Some(daemon) = state.daemons.get(&daemon_id) {
-        let is_disabled = state.disabled.contains(&daemon_id);
-        Html(daemon_row(&daemon_id, daemon, is_disabled))
+    let state_file_path = env::PITCHFORK_STATE_FILE.clone();
+    let daemon_id_for_state = daemon_id.clone();
+    let state = tokio::task::spawn_blocking(move || {
+        StateFile::read(&*state_file_path)
+            .unwrap_or_else(|_| StateFile::new(env::PITCHFORK_STATE_FILE.clone()))
+    })
+    .await
+    .unwrap_or_else(|_| StateFile::new(env::PITCHFORK_STATE_FILE.clone()));
+    if let Some(daemon) = state.daemons.get(&daemon_id_for_state) {
+        let is_disabled = state.disabled.contains(&daemon_id_for_state);
+        Html(daemon_row(&daemon_id_for_state, daemon, is_disabled))
     } else {
         Html(format!(
             r#"<tr id="daemon-{safe_id}"><td colspan="8">Disabled</td></tr>"#
