@@ -17,6 +17,7 @@ mod proxy;
 mod restart;
 mod run;
 mod schema;
+mod settings;
 mod start;
 mod status;
 mod stop;
@@ -51,6 +52,7 @@ enum Commands {
     Restart(restart::Restart),
     Run(run::Run),
     Schema(schema::Schema),
+    Settings(settings::Settings),
     Start(start::Start),
     Status(status::Status),
     Stop(stop::Stop),
@@ -79,6 +81,7 @@ pub async fn run() -> Result<()> {
         Commands::Run(run) => run.run().await,
         Commands::ApiSchema(api_schema) => api_schema.run().await,
         Commands::Schema(schema) => schema.run().await,
+        Commands::Settings(settings) => settings.run().await,
         Commands::Start(start) => start.run().await,
         Commands::Status(status) => status.run().await,
         Commands::Stop(stop) => stop.run().await,
