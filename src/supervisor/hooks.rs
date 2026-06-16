@@ -153,6 +153,7 @@ pub(crate) async fn run_hook(
             &daemon_env,
             &extra_env,
             config,
+            &pt,
         )
         .await
     } else {
@@ -181,9 +182,9 @@ async fn run_blocking_hook(
     daemon_env: &Option<IndexMap<String, String>>,
     extra_env: &[(String, String)],
     config: &HookConfig,
+    pt: &PitchforkToml,
 ) -> crate::Result<()> {
-    let pt = PitchforkToml::all_merged_all_namespaces().unwrap_or_default();
-    let cmd = match render_hook_template(&config.run, daemon_id, &pt).await {
+    let cmd = match render_hook_template(&config.run, daemon_id, pt).await {
         Ok(cmd) => cmd,
         Err(e) => {
             return Err(miette::miette!(

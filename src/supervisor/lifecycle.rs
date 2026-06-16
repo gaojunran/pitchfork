@@ -40,10 +40,12 @@ struct OnReadyResult {
 /// Fire the on_ready hook and send the readiness signal.
 ///
 /// - If `on_ready_blocking`, runs the hook synchronously; on failure, sends
-///   `Err(None)` via `ready_tx` so `run_once()` receives `DaemonFailedWithCode`.
+///   `Err(None)` via `ready_tx` so `run_once()` receives `DaemonFailedWithCode`,
+///   and kills the daemon process to prevent orphans.
 /// - If `!on_ready_blocking`, fires the hook in the background (fire-and-forget)
 ///   and sends `Ok(())` via `ready_tx`.
 /// - If the hook failed (blocking only), also skips the fire-and-forget path.
+#[allow(clippy::too_many_arguments)]
 async fn fire_on_ready(
     id: &DaemonId,
     daemon_dir: &std::path::Path,
@@ -52,6 +54,7 @@ async fn fire_on_ready(
     hook_daemon_env: &Option<indexmap::IndexMap<String, String>>,
     on_ready_blocking: bool,
     ready_tx: &mut Option<oneshot::Sender<Result<(), Option<i32>>>>,
+    daemon_pid: u32,
 ) -> OnReadyResult {
     let mut failed = false;
     if on_ready_blocking {
@@ -73,6 +76,20 @@ async fn fire_on_ready(
     if let Some(tx) = ready_tx.take() {
         if failed {
             let _ = tx.send(Err(None));
+            // Kill the daemon process so it doesn't become an orphan when
+            // run_once() returns DaemonFailedWithCode.
+            #[cfg(unix)]
+            {
+                use nix::sys::signal::{Signal, kill};
+                use nix::unistd::Pid;
+                let _ = kill(Pid::from_raw(daemon_pid as i32), Signal::SIGKILL);
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = std::process::Command::new("taskkill")
+                    .args(["/F", "/PID", &daemon_pid.to_string()])
+                    .status();
+            }
         } else {
             let _ = tx.send(Ok(()));
         }
@@ -817,6 +834,7 @@ impl Supervisor {
                     &hook_daemon_env,
                     on_ready_blocking,
                     &mut ready_tx,
+                    daemon_pid,
                 )
                 .await;
                 if !result.failed && !active_port_spawned && has_port_config {
@@ -970,7 +988,7 @@ impl Supervisor {
                         {
                             info!("daemon {id} ready: output matched pattern");
                             ready_notified = true;
-                            let result = fire_on_ready(&id, &daemon_dir, hook_retry_count, hook_recovery_count, &hook_daemon_env, on_ready_blocking, &mut ready_tx).await;
+                            let result = fire_on_ready(&id, &daemon_dir, hook_retry_count, hook_recovery_count, &hook_daemon_env, on_ready_blocking, &mut ready_tx, daemon_pid).await;
                             if !result.failed && !active_port_spawned && has_port_config {
                                 active_port_spawned = true;
                                 detect_and_store_active_port(id.clone(), daemon_pid);
@@ -1035,7 +1053,7 @@ impl Supervisor {
                                 Ok(response) if http.accepts_status(response.status().as_u16()) => {
                                     info!("daemon {id} ready: HTTP check passed (status {})", response.status());
                                     ready_notified = true;
-                                    let result = fire_on_ready(&id, &daemon_dir, hook_retry_count, hook_recovery_count, &hook_daemon_env, on_ready_blocking, &mut ready_tx).await;
+                                    let result = fire_on_ready(&id, &daemon_dir, hook_retry_count, hook_recovery_count, &hook_daemon_env, on_ready_blocking, &mut ready_tx, daemon_pid).await;
                                     http_check_interval = None;
                                     if !result.failed && !active_port_spawned && has_port_config {
                                         active_port_spawned = true;
@@ -1063,7 +1081,7 @@ impl Supervisor {
                                 Ok(_) => {
                                     info!("daemon {id} ready: TCP port {port} is listening");
                                     ready_notified = true;
-                                    let result = fire_on_ready(&id, &daemon_dir, hook_retry_count, hook_recovery_count, &hook_daemon_env, on_ready_blocking, &mut ready_tx).await;
+                                    let result = fire_on_ready(&id, &daemon_dir, hook_retry_count, hook_recovery_count, &hook_daemon_env, on_ready_blocking, &mut ready_tx, daemon_pid).await;
                                     // Stop checking once ready
                                     port_check_interval = None;
                                     if !result.failed && !active_port_spawned && has_port_config {
@@ -1096,7 +1114,7 @@ impl Supervisor {
                                 Ok(status) if status.success() => {
                                     info!("daemon {id} ready: readiness command succeeded");
                                     ready_notified = true;
-                                    let result = fire_on_ready(&id, &daemon_dir, hook_retry_count, hook_recovery_count, &hook_daemon_env, on_ready_blocking, &mut ready_tx).await;
+                                    let result = fire_on_ready(&id, &daemon_dir, hook_retry_count, hook_recovery_count, &hook_daemon_env, on_ready_blocking, &mut ready_tx, daemon_pid).await;
                                     // Stop checking once ready
                                     cmd_check_interval = None;
                                     if !result.failed && !active_port_spawned && has_port_config {
@@ -1123,7 +1141,7 @@ impl Supervisor {
                         if !ready_notified && ready_pattern.is_none() && ready_http.is_none() && ready_port.is_none() && ready_cmd.is_none() {
                             info!("daemon {id} ready: delay elapsed");
                             ready_notified = true;
-                            let result = fire_on_ready(&id, &daemon_dir, hook_retry_count, hook_recovery_count, &hook_daemon_env, on_ready_blocking, &mut ready_tx).await;
+                            let result = fire_on_ready(&id, &daemon_dir, hook_retry_count, hook_recovery_count, &hook_daemon_env, on_ready_blocking, &mut ready_tx, daemon_pid).await;
                             if !result.failed && !active_port_spawned && has_port_config {
                                 active_port_spawned = true;
                                 detect_and_store_active_port(id.clone(), daemon_pid);
