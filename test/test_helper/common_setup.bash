@@ -42,6 +42,11 @@ _common_setup() {
   # Ensure pitchfork binary is on PATH
   export PATH="$PROJECT_ROOT/target/debug:$PATH"
 
+  # Use sh as the daemon shell on all platforms. On Windows, the default
+  # (cmd) cannot parse Unix-style commands used in test scripts. Git Bash's
+  # sh.exe is available in the CI environment.
+  export PITCHFORK_SHELL="sh -c"
+
   # Fast watcher/poll intervals for responsive tests (matches Rust e2e defaults)
   export PITCHFORK_WATCH_INTERVAL=100ms
   export PITCHFORK_WATCH_POLL_INTERVAL=100ms
@@ -202,6 +207,13 @@ wait_for_file_content() {
 run_with_pty() {
   if [[ "$(uname)" == "Darwin" ]]; then
     script -q /dev/null "$@"
+  elif [[ "$(uname)" == MINGW* || "$(uname)" == MSYS* ]]; then
+    # Windows: use winpty if available, otherwise run without PTY
+    if command -v winpty >/dev/null 2>&1; then
+      winpty "$@"
+    else
+      "$@"
+    fi
   else
     script -qec "$*" /dev/null
   fi
@@ -222,6 +234,13 @@ kill_port() {
     done
   elif command -v fuser >/dev/null 2>&1; then
     fuser -k "${port}/tcp" 2>/dev/null || true
+  elif command -v netstat >/dev/null 2>&1; then
+    # Windows: use netstat + taskkill
+    local pids
+    pids="$(netstat -ano 2>/dev/null | rg ":${port}\s.*LISTENING" | awk '{print $NF}' | sort -u)" || true
+    for pid in $pids; do
+      taskkill //F //PID "$pid" 2>/dev/null || true
+    done
   fi
   sleep 0.1
 }
