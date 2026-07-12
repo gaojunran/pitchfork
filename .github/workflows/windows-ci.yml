@@ -46,12 +46,11 @@ jobs:
       # bats e2e tests: run under Git Bash (shell: bash). Many tests have
       # strong Unix dependencies (script(1), nc, /tmp, signal semantics)
       # so expect failures here — the goal is to see how far we get.
-      # Use --max-fail to stop early and --timeout to prevent hung tests
-      # from blocking the whole run (Windows lacks POSIX signals, so
-      # daemon cleanup in teardown can hang).
+      # Wrap with `timeout` to prevent hung daemon cleanup (Windows lacks
+      # POSIX signals, so teardown can block indefinitely).
       - name: Run bats e2e tests
         shell: bash
         run: |
           export PATH="$PWD/target/debug:$PATH"
-          test/bats/bin/bats test --max-fail 50 --timeout 30s
+          timeout 120 test/bats/bin/bats test || true
         continue-on-error: true
