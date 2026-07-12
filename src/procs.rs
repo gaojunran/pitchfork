@@ -363,20 +363,13 @@ impl Procs {
     /// Check if a process is terminated or is a zombie.
     /// On Linux, zombie processes still have /proc/[pid] entries but are effectively dead.
     /// This prevents unnecessary signal escalation for processes that have already exited.
+    #[cfg(unix)]
     fn is_terminated_or_zombie(&self, sysinfo_pid: sysinfo::Pid) -> bool {
         let system = self.lock_system();
         match system.process(sysinfo_pid) {
             None => true,
             Some(process) => {
-                #[cfg(unix)]
-                {
-                    matches!(process.status(), sysinfo::ProcessStatus::Zombie)
-                }
-                #[cfg(not(unix))]
-                {
-                    let _ = process;
-                    false
-                }
+                matches!(process.status(), sysinfo::ProcessStatus::Zombie)
             }
         }
     }
