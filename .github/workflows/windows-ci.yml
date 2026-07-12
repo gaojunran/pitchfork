@@ -46,13 +46,19 @@ jobs:
       # bats e2e tests: run under Git Bash (shell: bash). Many tests have
       # strong Unix dependencies (script(1), nc, /tmp, signal semantics)
       # so expect failures here — the goal is to see how far we get.
-      # Run serially (--jobs 1) so output is not buffered and we can see
-      # exactly which test hangs. Step-level timeout-minutes caps the run
-      # and preserves all output up to the hang point.
+      # Run each .bats file separately with a 30s per-file timeout so a
+      # hung file (Windows lacks POSIX signals for daemon cleanup) doesn't
+      # block all other files.
       - name: Run bats e2e tests
         shell: bash
-        timeout-minutes: 5
         run: |
           export PATH="$PWD/target/debug:$PATH"
-          test/bats/bin/bats test --jobs 1
+          overall=0
+          for f in test/*.bats; do
+            echo "::group::$f"
+            timeout 30 test/bats/bin/bats "$f" || echo "::warning::$f failed or timed out"
+            echo
+            echo "::endgroup::"
+          done
+          exit 0
         continue-on-error: true
