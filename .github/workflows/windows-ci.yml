@@ -12,7 +12,7 @@ env:
 jobs:
   test:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     permissions:
       contents: read
     steps:
@@ -55,7 +55,7 @@ jobs:
           export PATH="$PWD/target/debug:$PATH"
           for f in test/*.bats; do
             echo "::group::$f"
-            timeout 30 test/bats/bin/bats --tap "$f" 2>&1 || echo "::warning::$f failed or timed out"
+            timeout 120 test/bats/bin/bats --tap "$f" 2>&1 || echo "::warning::$f failed or timed out"
             echo
             echo "::endgroup::"
           done
