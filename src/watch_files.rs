@@ -253,7 +253,13 @@ mod tests {
 
     #[test]
     fn test_normalize_watch_path_nonexistent_path() {
+        // Use a platform-appropriate absolute path that doesn't exist.
+        // On Windows, "/nonexistent/..." is not absolute (no drive letter),
+        // so normalize_watch_path would prepend CWD instead of returning as-is.
+        #[cfg(unix)]
         let path = PathBuf::from("/nonexistent/path/to/dir");
+        #[cfg(windows)]
+        let path = PathBuf::from(r"C:\nonexistent\path\to\dir");
 
         // Should return the original path when canonicalization fails
         let normalized = normalize_watch_path(&path);

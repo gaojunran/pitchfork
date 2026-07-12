@@ -861,6 +861,8 @@ impl Supervisor {
             }
         }
 
+        // Unix: remove the socket directory. Windows: named pipes have no filesystem component.
+        #[cfg(unix)]
         let _ = fs::remove_dir_all(&*env::IPC_SOCK_DIR);
     }
 
