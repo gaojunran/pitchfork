@@ -128,6 +128,7 @@ pub fn start_in_background() -> Result<()> {
     #[cfg(unix)]
     fix_state_dir_permissions();
     cmd!(&*env::PITCHFORK_BIN, "supervisor", "run")
+        .stdin_null()
         .stdout_null()
         .stderr_file(stderr_file)
         .start()
