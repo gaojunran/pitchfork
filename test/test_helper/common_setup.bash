@@ -76,13 +76,6 @@ skip_on_windows() {
   fi
 }
 
-# Wrapper around pitchfork that adds a 30s timeout to prevent hangs
-# from blocking the entire test file. On Windows, some operations
-# (e.g. supervisor stop with active daemons) can block indefinitely.
-pitchfork() {
-  timeout 30 command pitchfork "$@"
-}
-
 _common_teardown() {
   # Stop the supervisor if running (swallow errors — it may not be running)
   # Use timeout to prevent hang if supervisor stop is stuck (e.g. daemon
