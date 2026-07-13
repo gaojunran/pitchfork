@@ -43,69 +43,6 @@ jobs:
         run: cargo test --all-features --no-fail-fast
         continue-on-error: true
 
-      - name: Debug autostop hang
-        shell: bash
-        run: |
-          export PATH="$PWD/target/debug:$PATH"
-          export PITCHFORK_LOG=debug
-          export PITCHFORK_AUTOSTOP_DELAY=5s
-          export PITCHFORK_INTERVAL=2s
-          export PITCHFORK_SHELL="sh -c"
-          export PITCHFORK_STATE_DIR="$(mktemp -d /tmp/pf-debug-XXXXXX)"
-          export PITCHFORK_LOGS_DIR="$PITCHFORK_STATE_DIR/logs"
-          export HOME="$(mktemp -d)"
-          mkdir -p "$PITCHFORK_LOGS_DIR"
-          cat > pitchfork.toml <<'TOML'
-          namespace = "project"
-
-          [daemons.delayed_stop]
-          run = "sleep 120"
-          auto = ["stop"]
-          ready_delay = 1
-          TOML
-
-          echo "=== 1. Start supervisor with debug ==="
-          PITCHFORK_LOG=debug pitchfork supervisor start --force 2>&1
-          echo "=== supervisor exit: $? ==="
-
-          echo "=== 2. pitchfork cd --shell-pid \$\$ ==="
-          timeout 10 pitchfork cd --shell-pid $$ 2>&1
-          echo "=== cd exit: $? ==="
-
-          echo "=== 3. pitchfork start delayed_stop --shell-pid \$\$ ==="
-          timeout 10 pitchfork start delayed_stop --shell-pid $$ 2>&1
-          echo "=== start exit: $? ==="
-
-          echo "=== 4. wait_for_status ==="
-          for i in $(seq 1 10); do
-            if pitchfork status delayed_stop 2>/dev/null | grep -q "Status:.*running"; then
-              echo "running after ${i} tries"
-              break
-            fi
-            sleep 0.2
-          done
-
-          echo "=== 5. cd to other dir ==="
-          other_dir="$(mktemp -d /tmp/pf-other-XXXXXX)"
-          cd "$other_dir"
-          timeout 10 pitchfork cd --shell-pid $$ 2>&1
-          echo "=== cd exit: $? ==="
-
-          echo "=== 6. sleep 12 (wait for autostop) ==="
-          sleep 12
-
-          echo "=== 7. check status ==="
-          timeout 10 pitchfork status project/delayed_stop 2>&1
-          echo "=== status exit: $? ==="
-
-          echo "=== 8. supervisor stop ==="
-          timeout 10 pitchfork supervisor stop 2>&1
-          echo "=== stop exit: $? ==="
-
-          echo "=== Supervisor log ==="
-          cat "$PITCHFORK_LOGS_DIR/pitchfork/pitchfork.log" 2>&1 | tail -50
-        continue-on-error: true
-
       # bats e2e tests: run under Git Bash (shell: bash). Many tests have
       # strong Unix dependencies (script(1), nc, /tmp, signal semantics)
       # so expect failures here — the goal is to see how far we get.

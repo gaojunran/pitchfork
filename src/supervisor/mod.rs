@@ -534,6 +534,16 @@ impl Supervisor {
         let mut last_refreshed_at = self.last_refreshed_at.lock().await;
         *last_refreshed_at = time::Instant::now();
 
+        // Prune shell PIDs that are no longer running. This is essential on
+        // Unix so that exited shells don't keep daemons alive forever.
+        //
+        // On Windows, skip this check: Git Bash (MSYS2) PIDs from `$$` are
+        // Cygwin-internal PIDs that are invisible to sysinfo (which sees
+        // Windows PIDs). The is_running check would always return false,
+        // immediately removing every registered shell and breaking autostop.
+        // Shell registration/deregistration relies on UpdateShellDir IPC
+        // messages instead.
+        #[cfg(unix)]
         for (dir, pids) in dirs_with_pids {
             let to_remove = pids
                 .iter()
