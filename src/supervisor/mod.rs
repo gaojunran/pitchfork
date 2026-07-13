@@ -120,17 +120,17 @@ pub fn start_in_background() -> Result<()> {
     if let Some(parent) = log_file.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    let stderr_file = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(log_file)
-        .into_diagnostic()?;
     #[cfg(unix)]
     fix_state_dir_permissions();
 
-    // On Unix, use duct for convenient spawn syntax.
+    // On Unix, use duct with stderr redirected to the log file.
     #[cfg(unix)]
     {
+        let stderr_file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log_file)
+            .into_diagnostic()?;
         cmd!(&*env::PITCHFORK_BIN, "supervisor", "run")
             .stdin_null()
             .stdout_null()
@@ -139,11 +139,14 @@ pub fn start_in_background() -> Result<()> {
             .into_diagnostic()?;
     }
 
-    // On Windows, use std::process::Command with DETACHED_PROCESS to fully
-    // isolate the supervisor from the parent's pipe handles. duct/Command
-    // with bInheritHandles=TRUE causes the supervisor to inherit the CLI's
-    // stdout pipe (e.g. bats' run capture pipe), keeping it open after the
-    // CLI exits and making bats hang indefinitely waiting for pipe closure.
+    // On Windows, use std::process::Command with all stdio set to null.
+    // We cannot use Stdio::from(file) for stderr because it forces
+    // bInheritHandles=TRUE, causing the supervisor to inherit the CLI's
+    // stdout pipe (e.g. bats' run capture pipe). The supervisor keeps the
+    // pipe open after the CLI exits, and bats hangs forever waiting for
+    // EOF. DETACHED_PROCESS alone doesn't prevent handle inheritance.
+    // The supervisor writes logs internally via the logging framework;
+    // the stderr redirect was only for capturing panics.
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -154,7 +157,7 @@ pub fn start_in_background() -> Result<()> {
             .args(["supervisor", "run"])
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::from(stderr_file))
+            .stderr(std::process::Stdio::null())
             .creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW)
             .spawn()
             .into_diagnostic()?;
