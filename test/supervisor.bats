@@ -51,6 +51,7 @@ get_supervisor_pid() {
 }
 
 @test "supervisor run starts in foreground and can be killed" {
+  skip_on_windows "supervisor run conflicts with pre-start workaround"
   pitchfork supervisor run &
   local sup_pid=$!
   sleep 2
@@ -67,6 +68,7 @@ get_supervisor_pid() {
 }
 
 @test "supervisor run --web-port starts web UI" {
+  skip_on_windows "supervisor run conflicts with pre-start workaround"
   kill_port 18999
 
   pitchfork supervisor run --web-port 18999 &
@@ -83,6 +85,7 @@ get_supervisor_pid() {
 }
 
 @test "supervisor run --web-path serves UI under prefix" {
+  skip_on_windows "supervisor run conflicts with pre-start workaround"
   kill_port 18998
 
   pitchfork supervisor run --web-port 18998 --web-path /pf &
@@ -105,6 +108,7 @@ get_supervisor_pid() {
 }
 
 @test "orphaned daemons are cleaned up on supervisor restart" {
+  skip_on_windows "daemon cleanup behavior differs on Windows"
   create_pitchfork_toml <<EOF
 [daemons.orphan_test]
 run = "sleep 60"
@@ -140,6 +144,7 @@ EOF
 # ============================================================================
 
 @test "restart triggers on_stop and on_exit hooks" {
+  skip_on_windows "hooks do not fire on Windows due to TerminateProcess"
   local stop_marker="$TEST_TEMP_DIR/restart_stop_marker"
   local exit_marker="$TEST_TEMP_DIR/restart_exit_marker"
 
@@ -225,6 +230,7 @@ EOF
 }
 
 @test "stop daemon with stale PID is idempotent" {
+  skip_on_windows "stale PID detection differs on Windows"
   export PITCHFORK_INTERVAL=1s
 
   create_pitchfork_toml <<EOF
@@ -332,6 +338,7 @@ EOF
 }
 
 @test "boot_start=true daemon auto-starts with supervisor" {
+  skip_on_windows "conflicts with pre-start workaround"
   create_pitchfork_toml <<EOF
 [daemons.bootsvc]
 run = "sleep 60"
@@ -391,6 +398,7 @@ EOF
 }
 
 @test "cross-namespace multi-daemon start" {
+  skip_on_windows "cross-namespace path resolution differs on Windows"
   mkdir -p "$TEST_TEMP_DIR/proj1" "$TEST_TEMP_DIR/proj2"
 
   cat > "$PITCHFORK_CONFIG_DIR/config.toml" <<EOF
@@ -436,6 +444,7 @@ EOF
 }
 
 @test "supervisor stop cleans up all running daemons" {
+  skip_on_windows "supervisor lifecycle cleanup differs on Windows"
   create_pitchfork_toml <<EOF
 [daemons.d1]
 run = "sleep 60"

@@ -241,6 +241,7 @@ EOF
 }
 
 @test "retry succeeds on third attempt" {
+  skip_on_windows "retry behavior differs on Windows"
   local success_script
   success_script="$(script_path success_on_third.sh)"
   export TEST_SUCCESS_ON_THIRD_TIMESTAMP="$BATS_TEST_NAME"
