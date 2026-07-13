@@ -10,11 +10,36 @@ env:
   MISE_EXPERIMENTAL: true
 
 jobs:
-  test:
+  rust-tests:
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 15
     permissions:
       contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          submodules: true
+          persist-credentials: false
+      - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
+        with:
+          cache: false
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - name: Build UI assets
+        working-directory: ui
+        run: |
+          aube install
+          aube run build
+      - name: Run Rust tests
+        run: cargo nextest run --all-features
+
+  bats-tests:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        tranche: [0, 1]
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -34,22 +59,13 @@ jobs:
           aube run build
       - name: Build
         run: cargo build --all-features
-
-      # Rust tests: nextest first (nice output, parallel), fall back to
-      # cargo test if nextest is unavailable or compilation fails.
-      - name: Run Rust tests (nextest)
-        id: nextest
-        run: cargo nextest run --all-features
-        continue-on-error: true
-      - name: Run Rust tests (cargo test fallback)
-        if: steps.nextest.outcome != 'success'
-        run: cargo test --all-features --no-fail-fast
-        continue-on-error: true
-
-      # bats e2e tests: run under Git Bash (shell: bash), same as Linux CI.
-      - name: Run bats e2e tests
+      - name: Run bats e2e tests (tranche ${{ matrix.tranche }})
         shell: bash
+        env:
+          TRANCHE: ${{ matrix.tranche }}
+          TRANCHE_COUNT: 2
         run: |
           export PATH="$PWD/target/debug:$PATH"
-          test/bats/bin/bats test
-        continue-on-error: true
+          tests=$(ls -1 test/*.bats | sort | awk -v t="$TRANCHE" -v n="$TRANCHE_COUNT" 'NR % n == t')
+          echo "Running tranche $TRANCHE: $tests"
+          test/bats/bin/bats $tests
