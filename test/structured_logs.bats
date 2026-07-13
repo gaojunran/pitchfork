@@ -382,7 +382,6 @@ EOF
 }
 
 @test "logs --field with multiple values uses AND logic" {
-  skip_on_windows "SQLite AND logic differs on Windows"
   cat > "$PWD/emit.sh" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' '{"method":"GET","path":"/error","msg":"get_error_msg"}' '{"method":"POST","path":"/error","msg":"post_error_msg"}' '{"method":"GET","path":"/ok","msg":"get_ok_msg"}'

@@ -206,7 +206,6 @@ EOF
 }
 
 @test "shell directory registration and removal" {
-  skip_on_windows "Path format differs between Git Bash and Windows native"
   # Ensure supervisor is running
   pitchfork supervisor start
 

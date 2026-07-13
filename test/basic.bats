@@ -241,7 +241,6 @@ EOF
 }
 
 @test "retry succeeds on third attempt" {
-  skip_on_windows "retry behavior differs on Windows"
   local success_script
   success_script="$(script_path success_on_third.sh)"
   export TEST_SUCCESS_ON_THIRD_TIMESTAMP="$BATS_TEST_NAME"
@@ -506,7 +505,6 @@ EOF
 # ============================================================================
 
 @test "daemon dir relative sets working directory" {
-  skip_on_windows "Path format differs between Git Bash and Windows native"
   mkdir -p mysubdir
   local marker
   marker="$TEST_TEMP_DIR/dir_test_marker"
@@ -532,7 +530,6 @@ EOF
 }
 
 @test "daemon dir absolute sets working directory" {
-  skip_on_windows "Path format differs between Git Bash and Windows native"
   local abs_dir marker
   abs_dir="$TEST_TEMP_DIR/absolute_dir"
   mkdir -p "$abs_dir"
@@ -607,7 +604,6 @@ EOF
 }
 
 @test "daemon dir and env work together" {
-  skip_on_windows "Path format differs between Git Bash and Windows native"
   mkdir -p combined_test_dir
   local marker
   marker="$TEST_TEMP_DIR/combined_test_marker"
@@ -737,7 +733,6 @@ EOF
 }
 
 @test "restart all includes ad-hoc daemons" {
-  skip_on_windows "restart --all behavior differs on Windows"
   create_pitchfork_toml <<EOF
 [daemons.config_daemon]
 run = "sleep 60"
