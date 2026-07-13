@@ -60,6 +60,61 @@ jobs:
           aube run build
       - name: Build
         run: cargo build --all-features
+      - name: Debug autostop
+        if: matrix.tranche == 1
+        shell: bash
+        run: |
+          export PATH="$PWD/target/debug:$PATH"
+          export PITCHFORK_LOG=debug
+          export PITCHFORK_AUTOSTOP_DELAY=2s
+          export PITCHFORK_INTERVAL=1s
+          export PITCHFORK_SHELL="sh -c"
+          export PITCHFORK_STATE_DIR="$(mktemp -d /tmp/pf-debug-XXXXXX)"
+          export PITCHFORK_LOGS_DIR="$PITCHFORK_STATE_DIR/logs"
+          export HOME="$(mktemp -d)"
+          mkdir -p "$PITCHFORK_LOGS_DIR"
+          cat > pitchfork.toml <<'TOML'
+          namespace = "project"
+
+          [daemons.delayed_stop]
+          run = "sleep 120"
+          auto = ["stop"]
+          ready_delay = 1
+          TOML
+
+          echo "=== Starting supervisor ==="
+          pitchfork supervisor start --force >/dev/null 2>&1
+
+          echo "=== Registering shell in project dir ==="
+          pitchfork cd --shell-pid $$ 2>&1
+
+          echo "=== Starting daemon ==="
+          pitchfork start delayed_stop --shell-pid $$ 2>&1
+
+          echo "=== Waiting for daemon to be running ==="
+          for i in $(seq 1 10); do
+            pitchfork status delayed_stop 2>/dev/null | grep -q "Status:.*running" && break
+            sleep 0.2
+          done
+          echo "Daemon status: $(pitchfork status delayed_stop 2>/dev/null | grep Status)"
+
+          echo "=== CD to other dir ==="
+          other_dir="$(mktemp -d /tmp/pf-other-XXXXXX)"
+          cd "$other_dir"
+          pitchfork cd --shell-pid $$ 2>&1
+
+          echo "=== Waiting 5s for autostop ==="
+          sleep 5
+
+          echo "=== Daemon status after autostop ==="
+          pitchfork status project/delayed_stop 2>&1
+
+          echo "=== Supervisor log (last 20 lines) ==="
+          cat "$PITCHFORK_LOGS_DIR/pitchfork/pitchfork.log" 2>&1 | tail -20
+
+          pitchfork supervisor stop 2>/dev/null || true
+        continue-on-error: true
+
       - name: Run bats e2e tests (tranche ${{ matrix.tranche }})
         shell: bash
         env:
