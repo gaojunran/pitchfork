@@ -88,6 +88,7 @@ normalize_path() {
   fi
 }
 
+_common_teardown() {
   # Stop the supervisor if running (swallow errors — it may not be running)
   # Use timeout to prevent hang if supervisor stop is stuck (e.g. daemon
   # cleanup on Windows where POSIX signals are unavailable).
