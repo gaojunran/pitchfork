@@ -522,9 +522,7 @@ EOF
   sleep 0.5
 
   run cat "$marker"
-  local expected
-  expected="$(normalize_path "$(cd mysubdir && pwd)")"
-  assert_output "$(normalize_path "$output")"
+  assert_path_equal "$(cd mysubdir && pwd)" "$output"
 
   pitchfork stop dir_test
 }
@@ -549,8 +547,7 @@ EOF
   sleep 0.5
 
   run cat "$marker"
-  output="$(normalize_path "$output")"
-  assert_output "$(normalize_path "$abs_dir")"
+  assert_path_equal "$abs_dir" "$output"
 
   pitchfork stop dir_abs_test
 }
@@ -629,8 +626,7 @@ EOF
   expected_dir="$(cd combined_test_dir && pwd)"
 
   run cat "$marker"
-  output="$(normalize_path "$output")"
-  assert_output "8080:$(normalize_path "$expected_dir")"
+  assert_path_equal "8080:$expected_dir" "$output"
 
   pitchfork stop combined_test
 }

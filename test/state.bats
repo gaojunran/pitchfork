@@ -214,7 +214,11 @@ EOF
 
   run read_state
   assert_output --partial "[shell_dirs]"
-  assert_output --partial "$(normalize_path "$(pwd)")"
+  local cwd; cwd="$(pwd)"
+  if command -v cygpath >/dev/null 2>&1; then
+    cwd="$(cygpath -m "$cwd" 2>/dev/null || echo "$cwd")"
+  fi
+  assert_output --partial "$cwd"
 
   # Leave the directory and verify the old directory is removed from state
   cd /tmp

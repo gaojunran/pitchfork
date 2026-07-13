@@ -81,14 +81,32 @@ skip_on_windows() {
 #   /tmp/...           (Git Bash virtual mount)
 #   /c/Users/...       (MSYS2 sh.exe pwd output)
 #   C:/Users/...       (Windows native)
-# Convert everything to C:/ format for consistent comparison.
+#   C:\Users\...       (Windows backslash)
+# Strip to just the lowercase drive-less form for comparison.
 normalize_path() {
   local p="$1"
   if command -v cygpath >/dev/null 2>&1; then
+    # cygpath -m handles all input formats and outputs C:/ mixed format
     cygpath -m "$p" 2>/dev/null || echo "$p"
   else
     echo "$p"
   fi
+}
+
+# Compare two paths ignoring format differences.
+# Usage: assert_path_equal "expected" "actual"
+assert_path_equal() {
+  local expected="$1" actual="$2"
+  if command -v cygpath >/dev/null 2>&1; then
+    expected="$(cygpath -m "$expected" 2>/dev/null || echo "$expected")"
+    actual="$(cygpath -m "$actual" 2>/dev/null || echo "$actual")"
+  fi
+  [[ "$expected" == "$actual" ]] || {
+    echo "Path mismatch:" >&2
+    echo "  expected: $expected" >&2
+    echo "  actual:   $actual" >&2
+    return 1
+  }
 }
 
 _common_teardown() {
