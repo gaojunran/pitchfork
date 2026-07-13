@@ -70,6 +70,7 @@ EOF
 }
 
 @test "pty = true allocates a pseudo-terminal" {
+  skip_on_windows "PTY allocation is not supported on Windows"
   create_pitchfork_toml <<'EOF'
 [daemons.with_pty]
 run = "if [ -t 0 ] && [ -t 1 ]; then echo HAS_TTY; else echo NO_TTY; fi && sleep 30"

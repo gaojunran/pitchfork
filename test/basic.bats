@@ -505,6 +505,7 @@ EOF
 # ============================================================================
 
 @test "daemon dir relative sets working directory" {
+  skip_on_windows "Path format differs between Git Bash and Windows native"
   mkdir -p mysubdir
   local marker
   marker="$TEST_TEMP_DIR/dir_test_marker"
@@ -530,6 +531,7 @@ EOF
 }
 
 @test "daemon dir absolute sets working directory" {
+  skip_on_windows "Path format differs between Git Bash and Windows native"
   local abs_dir marker
   abs_dir="$TEST_TEMP_DIR/absolute_dir"
   mkdir -p "$abs_dir"
@@ -604,6 +606,7 @@ EOF
 }
 
 @test "daemon dir and env work together" {
+  skip_on_windows "Path format differs between Git Bash and Windows native"
   mkdir -p combined_test_dir
   local marker
   marker="$TEST_TEMP_DIR/combined_test_marker"

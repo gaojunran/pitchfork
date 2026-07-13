@@ -10,6 +10,7 @@ teardown() {
 }
 
 @test "stop_signal sends custom signal to daemon" {
+  skip_on_windows "POSIX signals are not supported on Windows"
   local sig_script
   sig_script="$TEST_TEMP_DIR/trap_sigint.sh"
   cat > "$sig_script" <<'EOF'
@@ -54,6 +55,7 @@ EOF
 }
 
 @test "cpu_limit triggers on high CPU usage" {
+  skip_on_windows "CPU monitoring behavior differs on Windows"
   export PITCHFORK_INTERVAL=1s
 
   create_pitchfork_toml <<EOF

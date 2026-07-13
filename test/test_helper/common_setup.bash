@@ -68,6 +68,21 @@ _common_setup() {
   pitchfork supervisor start --force >/dev/null 2>&1 || true
 }
 
+# Skip a test on Windows (Git Bash / MSYS2).
+# Usage: skip_on_windows "reason"
+skip_on_windows() {
+  if [[ "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* ]]; then
+    skip "$1"
+  fi
+}
+
+# Wrapper around pitchfork that adds a 30s timeout to prevent hangs
+# from blocking the entire test file. On Windows, some operations
+# (e.g. supervisor stop with active daemons) can block indefinitely.
+pitchfork() {
+  timeout 30 command pitchfork "$@"
+}
+
 _common_teardown() {
   # Stop the supervisor if running (swallow errors — it may not be running)
   # Use timeout to prevent hang if supervisor stop is stuck (e.g. daemon
@@ -246,10 +261,11 @@ kill_port() {
     done
   elif command -v fuser >/dev/null 2>&1; then
     fuser -k "${port}/tcp" 2>/dev/null || true
+  # Use a kill_port fallback that works without rg (not installed on Windows CI)
   elif command -v netstat >/dev/null 2>&1; then
     # Windows: use netstat + taskkill
     local pids
-    pids="$(netstat -ano 2>/dev/null | rg ":${port}\s.*LISTENING" | awk '{print $NF}' | sort -u)" || true
+    pids="$(netstat -ano 2>/dev/null | grep ":${port}\s.*LISTENING" | awk '{print $NF}' | sort -u)" || true
     for pid in $pids; do
       taskkill //F //PID "$pid" 2>/dev/null || true
     done

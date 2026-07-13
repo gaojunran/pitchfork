@@ -11,6 +11,7 @@ teardown() {
 }
 
 @test "autostop is delayed when PITCHFORK_AUTOSTOP_DELAY is set" {
+  skip_on_windows "Autostop relies on shell PID tracking which differs on Windows"
   export PITCHFORK_AUTOSTOP_DELAY=5s
   export PITCHFORK_INTERVAL=2s
 
@@ -54,6 +55,7 @@ EOF
 }
 
 @test "returning to project dir cancels pending autostop" {
+  skip_on_windows "Autostop relies on shell PID tracking which differs on Windows"
   export PITCHFORK_AUTOSTOP_DELAY=5s
   export PITCHFORK_INTERVAL=2s
 
@@ -102,6 +104,7 @@ EOF
 }
 
 @test "autostop happens immediately when delay is zero" {
+  skip_on_windows "Autostop relies on shell PID tracking which differs on Windows"
   export PITCHFORK_AUTOSTOP_DELAY=0s
   export PITCHFORK_INTERVAL=2s
 
