@@ -46,21 +46,10 @@ jobs:
         run: cargo test --all-features --no-fail-fast
         continue-on-error: true
 
-      # bats e2e tests: run under Git Bash (shell: bash). Many tests have
-      # strong Unix dependencies (script(1), nc, /tmp, signal semantics)
-      # so expect failures here — the goal is to see how far we get.
-      # Run each .bats file separately with a 30s per-file timeout so a
-      # hung file (Windows lacks POSIX signals for daemon cleanup) doesn't
-      # block all other files.
+      # bats e2e tests: run under Git Bash (shell: bash), same as Linux CI.
       - name: Run bats e2e tests
         shell: bash
         run: |
           export PATH="$PWD/target/debug:$PATH"
-          for f in test/*.bats; do
-            echo "::group::$f"
-            timeout 120 test/bats/bin/bats --tap "$f" 2>&1 || echo "::warning::$f failed or timed out"
-            echo
-            echo "::endgroup::"
-          done
-          exit 0
+          test/bats/bin/bats test
         continue-on-error: true
