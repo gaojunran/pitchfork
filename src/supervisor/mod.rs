@@ -139,28 +139,88 @@ pub fn start_in_background() -> Result<()> {
             .into_diagnostic()?;
     }
 
-    // On Windows, use std::process::Command with all stdio set to null.
-    // We cannot use Stdio::from(file) for stderr because it forces
-    // bInheritHandles=TRUE, causing the supervisor to inherit the CLI's
-    // stdout pipe (e.g. bats' run capture pipe). The supervisor keeps the
-    // pipe open after the CLI exits, and bats hangs forever waiting for
-    // EOF. DETACHED_PROCESS alone doesn't prevent handle inheritance.
-    // The supervisor writes logs internally via the logging framework;
-    // the stderr redirect was only for capturing panics.
+    // On Windows, use CreateProcessW directly with bInheritHandles=FALSE.
+    // std::process::Command always sets bInheritHandles=TRUE when any stdio
+    // handle is configured (even Stdio::null()), which causes the background
+    // supervisor to inherit ALL inheritable handles from the parent —
+    // including bats' stdout capture pipe. The supervisor keeps the pipe
+    // open after the CLI exits, and bats hangs forever waiting for EOF.
+    //
+    // CreateProcessW with bInheritHandles=FALSE prevents any handle
+    // inheritance. We pass NUL device handles for stdin/stdout/stderr
+    // via STARTUPINFO without inheriting any parent handles.
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
-        // DETACHED_PROCESS | CREATE_NO_WINDOW
-        const DETACHED_PROCESS: u32 = 0x0000_0200;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        std::process::Command::new(&*env::PITCHFORK_BIN)
-            .args(["supervisor", "run"])
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW)
-            .spawn()
-            .into_diagnostic()?;
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Foundation::{CloseHandle, FALSE};
+        use windows_sys::Win32::Storage::FileSystem::{
+            CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SHARE_WRITE, GENERIC_READ,
+            GENERIC_WRITE, OPEN_EXISTING,
+        };
+        use windows_sys::Win32::System::Threading::{
+            CREATE_NO_WINDOW, CreateProcessW, DETACHED_PROCESS, PROCESS_INFORMATION,
+            STARTF_USESTDHANDLES, STARTUPINFOW,
+        };
+
+        // Open NUL device for stdin/stdout/stderr
+        let nul: Vec<u16> = "\\\\?\\NUL\0".encode_utf16().collect();
+        let null_handle = unsafe {
+            CreateFileW(
+                nul.as_ptr(),
+                GENERIC_READ | GENERIC_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                std::ptr::null(),
+                OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL,
+                0,
+            )
+        };
+        if null_handle as usize == usize::MAX {
+            return Err(std::io::Error::last_os_error())
+                .wrap_err("failed to open NUL device for supervisor stdio");
+        }
+
+        let mut si: STARTUPINFOW = unsafe { std::mem::zeroed() };
+        si.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
+        si.dwFlags = STARTF_USESTDHANDLES;
+        si.hStdInput = null_handle;
+        si.hStdOutput = null_handle;
+        si.hStdError = null_handle;
+
+        let bin_path = &*env::PITCHFORK_BIN;
+        let mut cmd_line: Vec<u16> = format!("{} supervisor run\0", bin_path.to_string_lossy())
+            .encode_utf16()
+            .collect();
+
+        let mut pi: PROCESS_INFORMATION = unsafe { std::mem::zeroed() };
+        let ok = unsafe {
+            CreateProcessW(
+                std::ptr::null(),
+                cmd_line.as_mut_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                FALSE, // bInheritHandles = FALSE — the whole point
+                DETACHED_PROCESS | CREATE_NO_WINDOW,
+                std::ptr::null(),
+                std::ptr::null(),
+                &si,
+                &mut pi,
+            )
+        };
+
+        // Close the NUL handle — the child has its own copy.
+        unsafe { CloseHandle(null_handle) };
+
+        if ok == 0 {
+            return Err(std::io::Error::last_os_error())
+                .wrap_err("CreateProcessW failed for supervisor");
+        }
+
+        // Close process/thread handles — we don't need them (detached process).
+        unsafe {
+            CloseHandle(pi.hProcess);
+            CloseHandle(pi.hThread);
+        }
     }
 
     Ok(())
