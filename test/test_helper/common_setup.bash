@@ -77,13 +77,15 @@ skip_on_windows() {
 }
 
 # Normalize a path for cross-platform comparison.
-# On Windows Git Bash, /tmp is a virtual mount; the daemon (running in
-# sh.exe inside the supervisor) outputs /c/Users/... while bats sees /tmp/...
-# Use realpath to resolve both to the same canonical path.
+# On Windows Git Bash, paths can appear in multiple formats:
+#   /tmp/...           (Git Bash virtual mount)
+#   /c/Users/...       (MSYS2 sh.exe pwd output)
+#   C:/Users/...       (Windows native)
+# Convert everything to C:/ format for consistent comparison.
 normalize_path() {
   local p="$1"
-  if command -v realpath >/dev/null 2>&1; then
-    realpath "$p" 2>/dev/null || echo "$p"
+  if command -v cygpath >/dev/null 2>&1; then
+    cygpath -m "$p" 2>/dev/null || echo "$p"
   else
     echo "$p"
   fi
