@@ -127,12 +127,39 @@ pub fn start_in_background() -> Result<()> {
         .into_diagnostic()?;
     #[cfg(unix)]
     fix_state_dir_permissions();
-    cmd!(&*env::PITCHFORK_BIN, "supervisor", "run")
-        .stdin_null()
-        .stdout_null()
-        .stderr_file(stderr_file)
-        .start()
-        .into_diagnostic()?;
+
+    // On Unix, use duct for convenient spawn syntax.
+    #[cfg(unix)]
+    {
+        cmd!(&*env::PITCHFORK_BIN, "supervisor", "run")
+            .stdin_null()
+            .stdout_null()
+            .stderr_file(stderr_file)
+            .start()
+            .into_diagnostic()?;
+    }
+
+    // On Windows, use std::process::Command with DETACHED_PROCESS to fully
+    // isolate the supervisor from the parent's pipe handles. duct/Command
+    // with bInheritHandles=TRUE causes the supervisor to inherit the CLI's
+    // stdout pipe (e.g. bats' run capture pipe), keeping it open after the
+    // CLI exits and making bats hang indefinitely waiting for pipe closure.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // DETACHED_PROCESS | CREATE_NO_WINDOW
+        const DETACHED_PROCESS: u32 = 0x0000_0200;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        std::process::Command::new(&*env::PITCHFORK_BIN)
+            .args(["supervisor", "run"])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::from(stderr_file))
+            .creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW)
+            .spawn()
+            .into_diagnostic()?;
+    }
+
     Ok(())
 }
 
