@@ -56,6 +56,16 @@ _common_setup() {
 
   # Work inside the temp dir so pitchfork.toml is discovered there
   cd "$TEST_TEMP_DIR" || return 1
+
+  # Pre-start the supervisor with output redirected to a file (not a pipe).
+  # On Windows, when pitchfork auto-starts the supervisor via bats' `run`
+  # (which uses pipes), the background supervisor inherits the pipe write
+  # end and keeps it open after the CLI exits, causing bats to hang forever
+  # waiting for pipe EOF. By starting the supervisor here with redirection
+  # to /dev/null (a file, not a pipe), there's no pipe to inherit, and
+  # subsequent pitchfork commands connect to the already-running supervisor
+  # without spawning a new background process.
+  pitchfork supervisor start --force >/dev/null 2>&1 || true
 }
 
 _common_teardown() {
