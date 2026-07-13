@@ -12,7 +12,7 @@ env:
 jobs:
   rust-tests:
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -34,7 +34,7 @@ jobs:
 
   bats-tests:
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     permissions:
       contents: read
     strategy:

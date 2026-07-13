@@ -97,10 +97,20 @@ normalize_path() {
 # Usage: assert_path_equal "expected" "actual"
 assert_path_equal() {
   local expected="$1" actual="$2"
-  if command -v cygpath >/dev/null 2>&1; then
-    expected="$(cygpath -m "$expected" 2>/dev/null || echo "$expected")"
-    actual="$(cygpath -m "$actual" 2>/dev/null || echo "$actual")"
+  # Strip common prefixes like "8080:" before normalization
+  local prefix=""
+  if [[ "$expected" =~ ^([^/]*):(.*)$ && "${BASH_REMATCH[1]}" != "" ]]; then
+    prefix="${BASH_REMATCH[1]}:"
+    expected="${BASH_REMATCH[2]}"
+    actual="${actual#"$prefix"}"
   fi
+  if command -v cygpath >/dev/null 2>&1; then
+    # -m = mixed format (C:/), -l = prefer long names over 8.3 short names
+    expected="$(cygpath -m -l "$expected" 2>/dev/null || echo "$expected")"
+    actual="$(cygpath -m -l "$actual" 2>/dev/null || echo "$actual")"
+  fi
+  expected="$prefix$expected"
+  actual="$prefix$actual"
   [[ "$expected" == "$actual" ]] || {
     echo "Path mismatch:" >&2
     echo "  expected: $expected" >&2
