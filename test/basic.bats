@@ -523,7 +523,7 @@ EOF
 
   run cat "$marker"
   local expected
-  expected="$(cd mysubdir && pwd)"
+  expected="$(normalize_path "$(cd mysubdir && pwd)")"
   assert_output "$expected"
 
   pitchfork stop dir_test
@@ -532,6 +532,7 @@ EOF
 @test "daemon dir absolute sets working directory" {
   local abs_dir marker
   abs_dir="$TEST_TEMP_DIR/absolute_dir"
+  abs_dir="$(normalize_path "$abs_dir")"
   mkdir -p "$abs_dir"
   marker="$TEST_TEMP_DIR/dir_abs_test_marker"
 
@@ -548,7 +549,7 @@ EOF
   sleep 0.5
 
   run cat "$marker"
-  assert_output "$abs_dir"
+  assert_output "$(normalize_path "$abs_dir")"
 
   pitchfork stop dir_abs_test
 }
@@ -627,7 +628,7 @@ EOF
   expected_dir="$(cd combined_test_dir && pwd)"
 
   run cat "$marker"
-  assert_output "8080:$expected_dir"
+  assert_output "8080:$(normalize_path "$expected_dir")"
 
   pitchfork stop combined_test
 }

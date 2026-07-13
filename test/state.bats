@@ -214,7 +214,7 @@ EOF
 
   run read_state
   assert_output --partial "[shell_dirs]"
-  assert_output --partial "$(pwd)"
+  assert_output --partial "$(normalize_path "$(pwd)")"
 
   # Leave the directory and verify the old directory is removed from state
   cd /tmp

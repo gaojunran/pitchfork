@@ -88,7 +88,7 @@ get_supervisor_pid() {
   kill_port 18998
 
   pitchfork supervisor stop 2>/dev/null || true
-  pitchfork supervisor run --web-port 18998 --web-path /pf &
+  MSYS_NO_PATHCONV=1 pitchfork supervisor run --web-port 18998 --web-path /pf &
   local sup_pid=$!
   sleep 2
 

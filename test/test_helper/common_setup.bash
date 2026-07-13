@@ -76,7 +76,18 @@ skip_on_windows() {
   fi
 }
 
-_common_teardown() {
+# Normalize a path for cross-platform comparison.
+# On Windows Git Bash, /tmp is a virtual mount; cygpath -u resolves it
+# to the real filesystem path (e.g. /c/Users/...). On Unix, returns as-is.
+normalize_path() {
+  local p="$1"
+  if command -v cygpath >/dev/null 2>&1; then
+    cygpath -u "$p" 2>/dev/null || echo "$p"
+  else
+    echo "$p"
+  fi
+}
+
   # Stop the supervisor if running (swallow errors — it may not be running)
   # Use timeout to prevent hang if supervisor stop is stuck (e.g. daemon
   # cleanup on Windows where POSIX signals are unavailable).
