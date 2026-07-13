@@ -737,6 +737,7 @@ EOF
 }
 
 @test "restart all includes ad-hoc daemons" {
+  skip_on_windows "restart --all behavior differs on Windows"
   create_pitchfork_toml <<EOF
 [daemons.config_daemon]
 run = "sleep 60"
