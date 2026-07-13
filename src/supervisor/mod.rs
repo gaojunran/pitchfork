@@ -152,10 +152,9 @@ pub fn start_in_background() -> Result<()> {
     #[cfg(windows)]
     {
         use std::os::windows::ffi::OsStrExt;
-        use windows_sys::Win32::Foundation::{CloseHandle, FALSE};
+        use windows_sys::Win32::Foundation::{CloseHandle, FALSE, GENERIC_READ, GENERIC_WRITE};
         use windows_sys::Win32::Storage::FileSystem::{
-            CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SHARE_WRITE, GENERIC_READ,
-            GENERIC_WRITE, OPEN_EXISTING,
+            CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
         };
         use windows_sys::Win32::System::Threading::{
             CREATE_NO_WINDOW, CreateProcessW, DETACHED_PROCESS, PROCESS_INFORMATION,
@@ -172,12 +171,14 @@ pub fn start_in_background() -> Result<()> {
                 std::ptr::null(),
                 OPEN_EXISTING,
                 FILE_ATTRIBUTE_NORMAL,
-                0,
+                std::ptr::null::<u32>() as *mut std::ffi::c_void,
             )
         };
         if null_handle as usize == usize::MAX {
-            return Err(std::io::Error::last_os_error())
-                .wrap_err("failed to open NUL device for supervisor stdio");
+            return Err(miette::miette!(
+                "failed to open NUL device for supervisor stdio: {}",
+                std::io::Error::last_os_error()
+            ));
         }
 
         let mut si: STARTUPINFOW = unsafe { std::mem::zeroed() };
@@ -212,8 +213,10 @@ pub fn start_in_background() -> Result<()> {
         unsafe { CloseHandle(null_handle) };
 
         if ok == 0 {
-            return Err(std::io::Error::last_os_error())
-                .wrap_err("CreateProcessW failed for supervisor");
+            return Err(miette::miette!(
+                "CreateProcessW failed for supervisor: {}",
+                std::io::Error::last_os_error()
+            ));
         }
 
         // Close process/thread handles — we don't need them (detached process).
