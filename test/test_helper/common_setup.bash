@@ -54,11 +54,6 @@ _common_setup() {
   # Verbose logging for easier debugging
   export PITCHFORK_LOG=debug
 
-  # Default fast interval for autostop/retry checks. Individual tests may
-  # override this before calling `pitchfork supervisor start --force`.
-  export PITCHFORK_INTERVAL="${PITCHFORK_INTERVAL:-1s}"
-  export PITCHFORK_AUTOSTOP_DELAY="${PITCHFORK_AUTOSTOP_DELAY:-2s}"
-
   # Work inside the temp dir so pitchfork.toml is discovered there
   cd "$TEST_TEMP_DIR" || return 1
 
