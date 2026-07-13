@@ -60,7 +60,9 @@ _common_setup() {
 
 _common_teardown() {
   # Stop the supervisor if running (swallow errors — it may not be running)
-  pitchfork supervisor stop 2>/dev/null || true
+  # Use timeout to prevent hang if supervisor stop is stuck (e.g. daemon
+  # cleanup on Windows where POSIX signals are unavailable).
+  timeout 10 pitchfork supervisor stop 2>/dev/null || true
 
   # Preserve temp dirs on failure for post-mortem debugging
   if [[ -n "$BATS_TEST_COMPLETED" && "$BATS_TEST_COMPLETED" == "1" ]]; then
