@@ -907,11 +907,14 @@ impl Supervisor {
                         }
                     } => {
                         if !ready_notified && ready_pattern.is_none() && ready_http.is_none() && ready_port.is_none() && ready_cmd.is_none() {
-                            // Check if the process already exited before declaring it ready.
-                            // On Windows, sleep(0) can fire before child.wait() detects the
-                            // exit, causing pitchfork start to return success for a failed daemon.
+                            // Check if the process already exited or is exiting before
+                            // declaring it ready. On Windows, sleep(0) fires before
+                            // child.wait() detects the exit, causing pitchfork start to
+                            // return success for a daemon that already failed.
                             if exit_status.is_some() {
                                 debug!("daemon {id} exited during ready_delay, not marking as ready");
+                            } else if !PROCS.is_running(daemon_pid) {
+                                debug!("daemon {id} pid {daemon_pid} not running during ready_delay, deferring to exit handler");
                             } else {
                                 info!("daemon {id} ready: delay elapsed");
                                 ready_notified = true;

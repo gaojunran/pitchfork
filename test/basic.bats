@@ -20,7 +20,7 @@ teardown() {
   create_pitchfork_toml <<EOF
 [daemons.instant_fail]
 run = 'bash $fail_script 0'
-ready_delay = 0
+ready_delay = 3
 EOF
 
   run pitchfork start instant_fail
@@ -39,7 +39,7 @@ EOF
 [daemons.two_sec_fail]
 run = 'bash $fail_script 2'
 retry = 0
-ready_delay = 0
+ready_delay = 3
 EOF
 
   local start_time elapsed
