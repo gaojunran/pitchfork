@@ -388,7 +388,6 @@ EOF
 }
 
 @test "logs --field with multiple values uses AND logic" {
-  skip_on_windows "SQLite AND query returns different results on Windows"
   cat > "$PWD/emit.sh" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' '{"method":"GET","path":"/error","msg":"get_error_msg"}' '{"method":"POST","path":"/error","msg":"post_error_msg"}' '{"method":"GET","path":"/ok","msg":"get_ok_msg"}'
@@ -408,7 +407,10 @@ EOF
   pitchfork start field_and
   wait_for_logs field_and "get_ok_msg" 10
 
-  MSYS_NO_PATHCONV=1 PITCHFORK_LOG=error run pitchfork logs field_and --field method=GET --field path=/error --raw --no-timestamp
+  # Use MSYS_NO_PATHCONV=1 to prevent Git Bash from converting /error to a Windows path.
+  # Export it so it applies to the bats run subshell.
+  export MSYS_NO_PATHCONV=1
+  run pitchfork logs field_and --field method=GET --field path=/error --raw --no-timestamp
   assert_success
   [[ "$output" == *'"msg":"get_error_msg"'* ]]
   [[ "$output" != *'"msg":"post_error_msg"'* ]]
