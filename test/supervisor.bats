@@ -109,7 +109,7 @@ get_supervisor_pid() {
 }
 
 @test "orphaned daemons are cleaned up on supervisor restart" {
-  skip_on_windows "daemon cleanup on restart differs on Windows"
+  skip_on_windows "orphaned daemon cleanup after supervisor restart relies on process parent tracking not available on Windows"
 
   create_pitchfork_toml <<EOF
 [daemons.orphan_test]
@@ -188,7 +188,7 @@ EOF
 }
 
 @test "retry count persists across supervisor restart" {
-  skip_on_windows "retry count persistence differs on Windows"
+  skip_on_windows "retry count persistence across supervisor restart is unreliable on Windows due to IPC/supervisor shutdown behavior"
 
   export PITCHFORK_INTERVAL=1s
   local fail_script
@@ -236,7 +236,7 @@ EOF
 }
 
 @test "stop daemon with stale PID is idempotent" {
-  skip_on_windows "stale PID detection differs on Windows"
+  skip_on_windows "stale PID detection via external kill is unreliable on Windows"
 
   export PITCHFORK_INTERVAL=1s
 
@@ -406,14 +406,17 @@ EOF
 
 @test "cross-namespace multi-daemon start" {
 
-  mkdir -p "$TEST_TEMP_DIR/proj1" "$TEST_TEMP_DIR/proj2"
+  local proj1_dir proj2_dir
+  proj1_dir="$(normalize_path "$TEST_TEMP_DIR/proj1")"
+  proj2_dir="$(normalize_path "$TEST_TEMP_DIR/proj2")"
+  mkdir -p "$proj1_dir" "$proj2_dir"
 
   cat > "$PITCHFORK_CONFIG_DIR/config.toml" <<EOF
 [namespaces.proj1]
-dir = "proj1"
+dir = "$proj1_dir"
 
 [namespaces.proj2]
-dir = "proj2"
+dir = "$proj2_dir"
 EOF
 
   cat > "$TEST_TEMP_DIR/proj1/pitchfork.toml" <<EOF

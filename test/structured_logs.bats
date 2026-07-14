@@ -388,8 +388,6 @@ EOF
 }
 
 @test "logs --field with multiple values uses AND logic" {
-  skip_on_windows "SQLite AND logic differs on Windows"
-
   cat > "$PWD/emit.sh" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' '{"method":"GET","path":"/error","msg":"get_error_msg"}' '{"method":"POST","path":"/error","msg":"post_error_msg"}' '{"method":"GET","path":"/ok","msg":"get_ok_msg"}'
@@ -409,7 +407,7 @@ EOF
   pitchfork start field_and
   wait_for_logs field_and "get_ok_msg" 10
 
-  PITCHFORK_LOG=error run pitchfork logs field_and --field method=GET --field path=/error --raw --no-timestamp
+  MSYS_NO_PATHCONV=1 PITCHFORK_LOG=error run pitchfork logs field_and --field method=GET --field path=/error --raw --no-timestamp
   assert_success
   [[ "$output" == *'"msg":"get_error_msg"'* ]]
   [[ "$output" != *'"msg":"post_error_msg"'* ]]

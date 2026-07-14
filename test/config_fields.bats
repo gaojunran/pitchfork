@@ -55,14 +55,12 @@ EOF
 }
 
 @test "cpu_limit triggers on high CPU usage" {
-  skip_on_windows "CPU monitoring via sysinfo differs on Windows"
-
   export PITCHFORK_INTERVAL=1s
 
   create_pitchfork_toml <<EOF
 [daemons.cpu_burner]
 run = "while true; do echo x > /dev/null; done"
-cpu_limit = 10
+cpu_limit = 1
 retry = 0
 ready_delay = 1
 EOF
@@ -71,7 +69,7 @@ EOF
   assert_success
 
   # Wait long enough for the default 3 consecutive CPU violations at 1s intervals.
-  for _ in $(seq 1 30); do
+  for _ in $(seq 1 60); do
     local status
     status="$(get_daemon_status cpu_burner)"
     [[ "$status" == "errored" ]] && break

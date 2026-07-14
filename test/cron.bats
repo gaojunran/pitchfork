@@ -295,8 +295,6 @@ EOF
 }
 
 @test "cron immediate=true fires on start" {
-  skip_on_windows "cron timing differs on Windows"
-
   create_pitchfork_toml <<EOF
 [daemons.cron_immediate]
 run = "echo immediate_fired"
@@ -315,7 +313,12 @@ EOF
   wait_for_logs cron_immediate "immediate_fired" 5
 
   local count
-  count=$(pitchfork logs cron_immediate --raw 2>/dev/null | grep -c "immediate_fired" || true)
+  count=0
+  for _ in $(seq 1 15); do
+    count=$(pitchfork logs cron_immediate --raw 2>/dev/null | grep -c "immediate_fired" || true)
+    [[ "$count" -ge 2 ]] && break
+    sleep 1
+  done
   [[ "$count" -ge 2 ]]
 }
 
@@ -371,17 +374,17 @@ EOF
 }
 
 @test "retry with ready_output re-checks on each attempt" {
-  skip_on_windows "retry with ready_output differs on Windows"
-
   local success_script
   success_script="$(script_path success_on_third.sh)"
-  export TEST_SUCCESS_ON_THIRD_TIMESTAMP="$BATS_TEST_NAME"
 
   create_pitchfork_toml <<EOF
 [daemons.retry_ready_output]
 run = 'bash "$success_script"'
 ready_output = "READY"
 retry = 2
+
+[daemons.retry_ready_output.env]
+TEST_SUCCESS_ON_THIRD_TIMESTAMP = "$BATS_TEST_NAME"
 EOF
 
   run pitchfork start retry_ready_output

@@ -14,13 +14,13 @@ teardown() {
 # ============================================================================
 
 @test "instant fail task fails start command quickly" {
-  skip_on_windows "instant fail detection timing differs on Windows"
   local fail_script
   fail_script="$(script_path fail.sh)"
 
   create_pitchfork_toml <<EOF
 [daemons.instant_fail]
 run = 'bash $fail_script 0'
+ready_delay = 0
 EOF
 
   run pitchfork start instant_fail
@@ -32,7 +32,6 @@ EOF
 }
 
 @test "two second fail task fails before default ready check" {
-  skip_on_windows "daemon exit detection timing differs on Windows"
   local fail_script
   fail_script="$(script_path fail.sh)"
 
@@ -40,6 +39,7 @@ EOF
 [daemons.two_sec_fail]
 run = 'bash $fail_script 2'
 retry = 0
+ready_delay = 0
 EOF
 
   local start_time elapsed
@@ -243,17 +243,17 @@ EOF
 }
 
 @test "retry succeeds on third attempt" {
-  skip_on_windows "retry behavior differs on Windows"
-
   local success_script
   success_script="$(script_path success_on_third.sh)"
-  export TEST_SUCCESS_ON_THIRD_TIMESTAMP="$BATS_TEST_NAME"
 
   create_pitchfork_toml <<EOF
 [daemons.retry_success]
 run = 'bash $success_script'
 ready_delay = 1
 retry = 2
+
+[daemons.retry_success.env]
+TEST_SUCCESS_ON_THIRD_TIMESTAMP = "$BATS_TEST_NAME"
 EOF
 
   run pitchfork start retry_success

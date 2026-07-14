@@ -206,7 +206,6 @@ EOF
 }
 
 @test "shell directory registration and removal" {
-  skip_on_windows "Path format differs between Git Bash and Windows native"
   # Ensure supervisor is running
   pitchfork supervisor start
 
@@ -214,6 +213,9 @@ EOF
   assert_success
 
   run read_state
+  # Normalize Windows backslash path separators to forward slashes so the
+  # persisted state can be compared with cygpath -m output.
+  output="${output//\\//}"
   assert_output --partial "[shell_dirs]"
   local cwd; cwd="$(pwd)"
   if command -v cygpath >/dev/null 2>&1; then
@@ -227,6 +229,7 @@ EOF
   assert_success
 
   run read_state
+  output="${output//\\//}"
   refute_output --partial "$TEST_TEMP_DIR"
 }
 

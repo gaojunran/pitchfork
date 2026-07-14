@@ -14,24 +14,19 @@ teardown() {
 # ============================================================================
 
 @test "watching a file triggers daemon restart" {
-  skip_on_windows "file watching behavior differs on Windows"
-  skip_on_windows "file watching behavior differs on Windows"
   local http_script port
   http_script="$(script_path http_server.py)"
   port=19191
   kill_port "$port"
 
-  local watch_file
-  watch_file="$(normalize_path "$TEST_TEMP_DIR/watch_test_marker.txt")"
-
   create_pitchfork_toml <<EOF
 [daemons.watch_test]
 run = "python3 -u $http_script 0 $port"
-watch = ["$watch_file"]
+watch = ["watch_test_marker.txt"]
 ready_port = $port
 EOF
 
-  echo "initial" > "$watch_file"
+  echo "initial" > watch_test_marker.txt
 
   run pitchfork start watch_test
   assert_success
@@ -42,7 +37,7 @@ EOF
   original_pid="$(get_daemon_pid watch_test)"
   [[ -n "$original_pid" ]]
 
-  echo "modified" > "$watch_file"
+  echo "modified" > watch_test_marker.txt
 
   local new_pid current_pid
   new_pid=""
@@ -132,20 +127,15 @@ EOF
 # ============================================================================
 
 @test "glob watch patterns restart daemon on matching file changes" {
-  skip_on_windows "file watching behavior differs on Windows"
-  skip_on_windows "file watching behavior differs on Windows"
   local http_script port
   http_script="$(script_path http_server.py)"
   port=19192
   kill_port "$port"
 
-  local base_dir
-  base_dir="$(normalize_path "$TEST_TEMP_DIR")"
-
   create_pitchfork_toml <<EOF
 [daemons.glob_watch_test]
 run = "python3 -u $http_script 0 $port"
-watch = ["$base_dir/lib/**/*.ts", "$base_dir/config/*.json"]
+watch = ["lib/**/*.ts", "config/*.json"]
 ready_port = $port
 EOF
 
@@ -198,24 +188,19 @@ EOF
 # ============================================================================
 
 @test "relative watch paths trigger restart on file change" {
-  skip_on_windows "file watching behavior differs on Windows"
-  skip_on_windows "file watching behavior differs on Windows"
   local http_script port
   http_script="$(script_path http_server.py)"
   port=19193
   kill_port "$port"
 
-  local watch_file
-  watch_file="$(normalize_path "$TEST_TEMP_DIR/relative_test.txt")"
-
   create_pitchfork_toml <<EOF
 [daemons.relative_watch_test]
 run = "python3 -u $http_script 0 $port"
-watch = ["$watch_file"]
+watch = ["relative_test.txt"]
 ready_port = $port
 EOF
 
-  echo "initial" > "$watch_file"
+  echo "initial" > relative_test.txt
 
   run pitchfork start relative_watch_test
   assert_success
@@ -226,7 +211,7 @@ EOF
   original_pid="$(get_daemon_pid relative_watch_test)"
   [[ -n "$original_pid" ]]
 
-  echo "modified" > "$watch_file"
+  echo "modified" > relative_test.txt
 
   new_pid="$original_pid"
   for _ in $(seq 1 20); do
@@ -248,8 +233,6 @@ EOF
 # ============================================================================
 
 @test "watch_mode poll and auto both trigger restart on file changes" {
-  skip_on_windows "file watching behavior differs on Windows"
-  skip_on_windows "file watching behavior differs on Windows"
   local http_script port
   http_script="$(script_path http_server.py)"
 
@@ -261,18 +244,15 @@ EOF
     fi
     kill_port "$port"
 
-    local watch_file
-    watch_file="$(normalize_path "$TEST_TEMP_DIR/${mode}_watch_marker.txt")"
-
     create_pitchfork_toml <<EOF
 [daemons.${mode}_watch_test]
 run = "python3 -u $http_script 0 $port"
-watch = ["$watch_file"]
+watch = ["${mode}_watch_marker.txt"]
 watch_mode = "$mode"
 ready_port = $port
 EOF
 
-    echo "initial" > "$watch_file"
+    echo "initial" > "${mode}_watch_marker.txt"
 
     run pitchfork start ${mode}_watch_test
     assert_success
@@ -287,7 +267,7 @@ EOF
     original_pid="$(get_daemon_pid ${mode}_watch_test)"
     [[ -n "$original_pid" ]]
 
-    echo "changed" > "$watch_file"
+    echo "changed" > "${mode}_watch_marker.txt"
 
     new_pid="$original_pid"
     for _ in $(seq 1 30); do
