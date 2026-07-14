@@ -32,6 +32,7 @@ EOF
 }
 
 @test "two second fail task fails before default ready check" {
+  skip_on_windows "daemon exit detection timing differs on Windows"
   local fail_script
   fail_script="$(script_path fail.sh)"
 

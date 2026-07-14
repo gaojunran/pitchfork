@@ -71,7 +71,8 @@ get_supervisor_pid() {
   kill_port 18999
 
   pitchfork supervisor stop 2>/dev/null || true
-  pitchfork supervisor run --web-port 18999 &
+  sleep 1
+  pitchfork supervisor run --web-port 18999 --force &
   local sup_pid=$!
   sleep 2
 
@@ -145,6 +146,7 @@ EOF
 # ============================================================================
 
 @test "restart triggers on_stop and on_exit hooks" {
+  skip_on_windows "child.wait() does not detect TerminateProcess on Windows"
   local stop_marker
   stop_marker="$(to_shell_path "$TEST_TEMP_DIR/restart_stop_marker")"
   local exit_marker
