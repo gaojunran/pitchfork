@@ -380,8 +380,14 @@ impl Procs {
     }
 
     pub(crate) fn refresh_processes(&self) {
-        self.lock_system()
-            .refresh_processes(ProcessesToUpdate::All, true);
+        let mut system = self.lock_system();
+        system.refresh_processes(ProcessesToUpdate::All, true);
+        // On Windows, refresh_processes() does not update CPU usage.
+        // sysinfo requires a separate refresh_cpu_usage() call to compute
+        // the CPU delta between two samples. The first call stores the
+        // baseline; subsequent calls return the actual percentage.
+        #[cfg(windows)]
+        system.refresh_cpu_usage();
     }
 
     /// Refresh only specific PIDs instead of all processes.

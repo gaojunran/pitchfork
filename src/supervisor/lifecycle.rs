@@ -907,12 +907,19 @@ impl Supervisor {
                         }
                     } => {
                         if !ready_notified && ready_pattern.is_none() && ready_http.is_none() && ready_port.is_none() && ready_cmd.is_none() {
-                            info!("daemon {id} ready: delay elapsed");
-                            ready_notified = true;
-                            if let Some(tx) = ready_tx.take() {
-                                let _ = tx.send(Ok(()));
+                            // Check if the process already exited before declaring it ready.
+                            // On Windows, sleep(0) can fire before child.wait() detects the
+                            // exit, causing pitchfork start to return success for a failed daemon.
+                            if exit_status.is_some() {
+                                debug!("daemon {id} exited during ready_delay, not marking as ready");
+                            } else {
+                                info!("daemon {id} ready: delay elapsed");
+                                ready_notified = true;
+                                if let Some(tx) = ready_tx.take() {
+                                    let _ = tx.send(Ok(()));
+                                }
+                                fire_hook(HookType::OnReady, id.clone(), daemon_dir.clone(), hook_retry_count, hook_daemon_env.clone(), vec![]).await;
                             }
-                            fire_hook(HookType::OnReady, id.clone(), daemon_dir.clone(), hook_retry_count, hook_daemon_env.clone(), vec![]).await;
                         }
                         // Disable timer after it fires
                         delay_timer = None;

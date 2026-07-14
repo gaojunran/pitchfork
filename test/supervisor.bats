@@ -109,7 +109,6 @@ get_supervisor_pid() {
 }
 
 @test "orphaned daemons are cleaned up on supervisor restart" {
-  skip_on_windows "orphaned daemon cleanup after supervisor restart relies on process parent tracking not available on Windows"
 
   create_pitchfork_toml <<EOF
 [daemons.orphan_test]
@@ -146,7 +145,6 @@ EOF
 # ============================================================================
 
 @test "restart triggers on_stop and on_exit hooks" {
-  skip_on_windows "child.wait() does not detect TerminateProcess on Windows"
   local stop_marker
   stop_marker="$(to_shell_path "$TEST_TEMP_DIR/restart_stop_marker")"
   local exit_marker
@@ -188,7 +186,6 @@ EOF
 }
 
 @test "retry count persists across supervisor restart" {
-  skip_on_windows "retry count persistence across supervisor restart is unreliable on Windows due to IPC/supervisor shutdown behavior"
 
   export PITCHFORK_INTERVAL=1s
   local fail_script
@@ -236,7 +233,6 @@ EOF
 }
 
 @test "stop daemon with stale PID is idempotent" {
-  skip_on_windows "stale PID detection via external kill is unreliable on Windows"
 
   export PITCHFORK_INTERVAL=1s
 
