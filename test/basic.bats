@@ -219,6 +219,7 @@ EOF
 }
 
 @test "retry three retries with exponential backoff" {
+  skip_on_windows "pitchfork start returns success before daemon exit is detected on Windows"
   local fail_script
   fail_script="$(script_path fail.sh)"
 
