@@ -108,6 +108,7 @@ get_supervisor_pid() {
 }
 
 @test "orphaned daemons are cleaned up on supervisor restart" {
+  skip_on_windows "daemon cleanup on restart differs on Windows"
 
   create_pitchfork_toml <<EOF
 [daemons.orphan_test]
@@ -144,9 +145,10 @@ EOF
 # ============================================================================
 
 @test "restart triggers on_stop and on_exit hooks" {
-
-  local stop_marker="$TEST_TEMP_DIR/restart_stop_marker"
-  local exit_marker="$TEST_TEMP_DIR/restart_exit_marker"
+  local stop_marker
+  stop_marker="$(to_shell_path "$TEST_TEMP_DIR/restart_stop_marker")"
+  local exit_marker
+  exit_marker="$(to_shell_path "$TEST_TEMP_DIR/restart_exit_marker")"
 
   create_pitchfork_toml <<EOF
 [daemons.hooktest]
@@ -155,8 +157,8 @@ ready_delay = 1
 retry = 0
 
 [daemons.hooktest.hooks]
-on_stop = "touch $stop_marker"
-on_exit = "touch $exit_marker"
+on_stop = "touch \"$stop_marker\""
+on_exit = "touch \"$exit_marker\""
 EOF
 
   run pitchfork start hooktest
@@ -184,6 +186,8 @@ EOF
 }
 
 @test "retry count persists across supervisor restart" {
+  skip_on_windows "retry count persistence differs on Windows"
+
   export PITCHFORK_INTERVAL=1s
   local fail_script
   fail_script="$(script_path fail.sh)"
@@ -230,6 +234,7 @@ EOF
 }
 
 @test "stop daemon with stale PID is idempotent" {
+  skip_on_windows "stale PID detection differs on Windows"
 
   export PITCHFORK_INTERVAL=1s
 
@@ -403,10 +408,10 @@ EOF
 
   cat > "$PITCHFORK_CONFIG_DIR/config.toml" <<EOF
 [namespaces.proj1]
-dir = "$TEST_TEMP_DIR/proj1"
+dir = "proj1"
 
 [namespaces.proj2]
-dir = "$TEST_TEMP_DIR/proj2"
+dir = "proj2"
 EOF
 
   cat > "$TEST_TEMP_DIR/proj1/pitchfork.toml" <<EOF

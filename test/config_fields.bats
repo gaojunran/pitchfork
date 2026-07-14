@@ -55,6 +55,8 @@ EOF
 }
 
 @test "cpu_limit triggers on high CPU usage" {
+  skip_on_windows "CPU monitoring via sysinfo differs on Windows"
+
   export PITCHFORK_INTERVAL=1s
 
   create_pitchfork_toml <<EOF

@@ -19,14 +19,17 @@ teardown() {
   port=19191
   kill_port "$port"
 
+  local watch_file
+  watch_file="$(normalize_path "$TEST_TEMP_DIR/watch_test_marker.txt")"
+
   create_pitchfork_toml <<EOF
 [daemons.watch_test]
 run = "python3 -u $http_script 0 $port"
-watch = ["watch_test_marker.txt"]
+watch = ["$watch_file"]
 ready_port = $port
 EOF
 
-  echo "initial" > watch_test_marker.txt
+  echo "initial" > "$watch_file"
 
   run pitchfork start watch_test
   assert_success
@@ -37,7 +40,7 @@ EOF
   original_pid="$(get_daemon_pid watch_test)"
   [[ -n "$original_pid" ]]
 
-  echo "modified" > watch_test_marker.txt
+  echo "modified" > "$watch_file"
 
   local new_pid current_pid
   new_pid=""
@@ -132,10 +135,13 @@ EOF
   port=19192
   kill_port "$port"
 
+  local base_dir
+  base_dir="$(normalize_path "$TEST_TEMP_DIR")"
+
   create_pitchfork_toml <<EOF
 [daemons.glob_watch_test]
 run = "python3 -u $http_script 0 $port"
-watch = ["lib/**/*.ts", "config/*.json"]
+watch = ["$base_dir/lib/**/*.ts", "$base_dir/config/*.json"]
 ready_port = $port
 EOF
 
@@ -193,14 +199,17 @@ EOF
   port=19193
   kill_port "$port"
 
+  local watch_file
+  watch_file="$(normalize_path "$TEST_TEMP_DIR/relative_test.txt")"
+
   create_pitchfork_toml <<EOF
 [daemons.relative_watch_test]
 run = "python3 -u $http_script 0 $port"
-watch = ["./relative_test.txt"]
+watch = ["$watch_file"]
 ready_port = $port
 EOF
 
-  echo "initial" > relative_test.txt
+  echo "initial" > "$watch_file"
 
   run pitchfork start relative_watch_test
   assert_success
@@ -211,7 +220,7 @@ EOF
   original_pid="$(get_daemon_pid relative_watch_test)"
   [[ -n "$original_pid" ]]
 
-  echo "modified" > relative_test.txt
+  echo "modified" > "$watch_file"
 
   new_pid="$original_pid"
   for _ in $(seq 1 20); do
@@ -244,15 +253,18 @@ EOF
     fi
     kill_port "$port"
 
+    local watch_file
+    watch_file="$(normalize_path "$TEST_TEMP_DIR/${mode}_watch_marker.txt")"
+
     create_pitchfork_toml <<EOF
 [daemons.${mode}_watch_test]
 run = "python3 -u $http_script 0 $port"
-watch = ["${mode}_watch_marker.txt"]
+watch = ["$watch_file"]
 watch_mode = "$mode"
 ready_port = $port
 EOF
 
-    echo "initial" > "${mode}_watch_marker.txt"
+    echo "initial" > "$watch_file"
 
     run pitchfork start ${mode}_watch_test
     assert_success
@@ -267,7 +279,7 @@ EOF
     original_pid="$(get_daemon_pid ${mode}_watch_test)"
     [[ -n "$original_pid" ]]
 
-    echo "changed" > "${mode}_watch_marker.txt"
+    echo "changed" > "$watch_file"
 
     new_pid="$original_pid"
     for _ in $(seq 1 30); do

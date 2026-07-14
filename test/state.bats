@@ -216,7 +216,7 @@ EOF
   assert_output --partial "[shell_dirs]"
   local cwd; cwd="$(pwd)"
   if command -v cygpath >/dev/null 2>&1; then
-    cwd="$(cygpath -m "$cwd" 2>/dev/null || echo "$cwd")"
+    cwd="$(cygpath -m -l "$cwd" 2>/dev/null || echo "$cwd")"
   fi
   assert_output --partial "$cwd"
 

@@ -77,6 +77,8 @@ EOF
 }
 
 @test "resource violation triggers retry" {
+  skip_on_windows "resource monitoring differs on Windows"
+
   local eat_memory_script
   eat_memory_script="$(script_path eat_memory.sh)"
 

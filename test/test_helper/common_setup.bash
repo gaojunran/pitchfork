@@ -97,9 +97,11 @@ normalize_path() {
 # Usage: assert_path_equal "expected" "actual"
 assert_path_equal() {
   local expected="$1" actual="$2"
-  # Strip common prefixes like "8080:" before normalization
+  # Strip numeric prefixes like "8080:" before normalization.
+  # Drive-letter paths (C:/...) must be left intact so cygpath -m -l
+  # does not double the drive prefix.
   local prefix=""
-  if [[ "$expected" =~ ^([^/]*):(.*)$ && "${BASH_REMATCH[1]}" != "" ]]; then
+  if [[ "$expected" =~ ^([0-9]+):(.*)$ ]]; then
     prefix="${BASH_REMATCH[1]}:"
     expected="${BASH_REMATCH[2]}"
     actual="${actual#"$prefix"}"
@@ -117,6 +119,21 @@ assert_path_equal() {
     echo "  actual:   $actual" >&2
     return 1
   }
+}
+
+# Convert a path to a Unix-style path suitable for shell commands.
+#
+# On Windows Git Bash, paths may be returned in Windows native format (e.g.
+# C:/Users/...). The supervisor's shell (configured as "sh -c") cannot resolve
+# those paths, so convert them to the Unix-style form (/c/Users/...) that
+# MSYS2 sh understands. On non-Windows platforms the path is returned unchanged.
+to_shell_path() {
+  local p="$1"
+  if command -v cygpath >/dev/null 2>&1; then
+    cygpath -u "$p" 2>/dev/null || echo "$p"
+  else
+    echo "$p"
+  fi
 }
 
 _common_teardown() {

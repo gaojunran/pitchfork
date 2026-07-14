@@ -260,8 +260,8 @@ EOF
 # ===========================================================================
 
 @test "on_retry hook fires once per retry attempt" {
-
-  local marker="$TEST_TEMP_DIR/on_retry_marker"
+  local marker
+  marker="$(to_shell_path "$TEST_TEMP_DIR/on_retry_marker")"
 
   create_pitchfork_toml <<EOF
 [daemons.retry_hook_test]
@@ -269,7 +269,7 @@ run = "exit 1"
 retry = 2
 
 [daemons.retry_hook_test.hooks]
-on_retry = "echo retry >> $marker"
+on_retry = "echo retry >> \"$marker\""
 EOF
 
   pitchfork supervisor start
