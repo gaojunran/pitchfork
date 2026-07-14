@@ -55,6 +55,7 @@ EOF
 }
 
 @test "cpu_limit triggers on high CPU usage" {
+  skip_on_windows "sysinfo does not report CPU usage in single-pass refresh on Windows"
   export PITCHFORK_INTERVAL=1s
 
   create_pitchfork_toml <<EOF
