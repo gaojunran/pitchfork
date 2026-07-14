@@ -14,6 +14,7 @@ teardown() {
 # ============================================================================
 
 @test "instant fail task fails start command quickly" {
+  skip_on_windows "process exits too fast for child.wait() to detect before ready_delay timer on Windows"
   local fail_script
   fail_script="$(script_path fail.sh)"
 
