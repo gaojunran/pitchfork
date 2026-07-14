@@ -1,9 +1,9 @@
 #!/usr/bin/env bats
 
 setup() {
+  export PITCHFORK_INTERVAL=2s
   load test_helper/common_setup
   _common_setup
-  export PITCHFORK_INTERVAL=2s
 }
 
 teardown() {
@@ -77,7 +77,6 @@ EOF
 }
 
 @test "resource violation triggers retry" {
-  skip_on_windows "sysinfo memory monitoring does not trigger on Windows"
   local eat_memory_script
   eat_memory_script="$(script_path eat_memory.sh)"
 

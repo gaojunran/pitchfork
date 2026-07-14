@@ -56,6 +56,8 @@ EOF
 
 @test "cpu_limit triggers on high CPU usage" {
   export PITCHFORK_INTERVAL=1s
+  pitchfork supervisor start --force >/dev/null 2>&1
+  export PITCHFORK_INTERVAL=1s
 
   create_pitchfork_toml <<EOF
 [daemons.cpu_burner]

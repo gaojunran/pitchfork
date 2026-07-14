@@ -76,6 +76,17 @@ skip_on_windows() {
   fi
 }
 
+# Kill a process by PID, working on both Unix and Windows.
+# On Windows Git Bash, `kill -9` may not terminate native Windows processes.
+# Use taskkill //F //PID as a fallback.
+kill_pid() {
+  local pid="$1"
+  kill -9 "$pid" 2>/dev/null || true
+  if [[ "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* ]]; then
+    taskkill //F //PID "$pid" 2>/dev/null || true
+  fi
+}
+
 # Normalize a path for cross-platform comparison.
 # On Windows Git Bash, paths can appear in multiple formats:
 #   /tmp/...           (Git Bash virtual mount)
