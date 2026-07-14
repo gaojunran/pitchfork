@@ -345,6 +345,7 @@ EOF
 }
 
 @test "boot_start=true daemon auto-starts with supervisor" {
+  skip_on_windows "boot_start requires supervisor run --boot which conflicts with pre-start"
   create_pitchfork_toml <<EOF
 [daemons.bootsvc]
 run = "sleep 60"
