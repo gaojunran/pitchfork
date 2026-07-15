@@ -941,6 +941,24 @@ impl Supervisor {
                 }
             }
 
+            // Snapshot the daemon state BEFORE draining output.
+            //
+            // The drain can take up to 5s (e.g. when child processes keep the
+            // stdout pipe open). During that time, a subsequent start() call
+            // (e.g. from `pitchfork restart`) can upsert the daemon with a new
+            // PID and Running status. If we only checked state AFTER the drain,
+            // the monitoring task would see d.pid != Some(old_pid) && !is_stopped()
+            // && !is_stopping() and return early without firing on_stop/on_exit
+            // hooks.
+            //
+            // By snapshotting is_stopping before the drain, we preserve the
+            // knowledge that stop() was called, so hooks fire correctly even
+            // if start() has since changed the state.
+            let pre_drain_daemon = SUPERVISOR.get_daemon(&id).await;
+            let pre_drain_is_stopping = pre_drain_daemon
+                .as_ref()
+                .is_some_and(|d| d.status.is_stopped() || d.status.is_stopping());
+
             // Drain any in-flight output lines that were still in the mpsc
             // channel or the OS pipe buffer when the child exited. Without
             // this, trailing log lines from short-lived daemons get dropped.
@@ -1006,25 +1024,27 @@ impl Supervisor {
             }
             let _monitor_guard = MonitorGuard;
             // Check if this monitoring task is for the current daemon process.
-            // Allow Stopped/Stopping daemons through: stop() clears pid atomically,
-            // so d.pid != Some(pid) would be true, but we still need the is_stopped()
-            // branch below to fire on_stop/on_exit hooks.
-            if current_daemon.is_none()
-                || current_daemon.as_ref().is_some_and(|d| {
-                    d.pid != Some(pid) && !d.status.is_stopped() && !d.status.is_stopping()
-                })
+            // If the daemon was intentionally stopped (pre_drain_is_stopping),
+            // skip this check — we must still fire on_stop/on_exit hooks even
+            // if start() has since changed the PID and status.
+            if !pre_drain_is_stopping
+                && (current_daemon.is_none()
+                    || current_daemon.as_ref().is_some_and(|d| {
+                        d.pid != Some(pid) && !d.status.is_stopped() && !d.status.is_stopping()
+                    }))
             {
                 // Another process has taken over, don't update status
                 return;
             }
-            // Capture the intentional-stop flag BEFORE any state changes.
-            // stop() transitions Stopping → Stopped and clears pid. If stop() wins the race
-            // and sets Stopped before this task runs, we still need to fire on_stop/on_exit.
-            // Treat both Stopping and Stopped as "intentional stop by pitchfork".
+            // Capture the intentional-stop flag. Combine pre-drain and
+            // post-drain state to handle both race orders:
+            //  - stop() set Stopping before drain → pre_drain_is_stopping
+            //  - stop() set Stopped during drain → current_daemon.is_stopped()
             let already_stopped = current_daemon
                 .as_ref()
                 .is_some_and(|d| d.status.is_stopped());
             let is_stopping = already_stopped
+                || pre_drain_is_stopping
                 || current_daemon
                     .as_ref()
                     .is_some_and(|d| d.status.is_stopping());
@@ -1180,45 +1200,20 @@ impl Supervisor {
                         }
                     }
 
-                    // Wait for the monitoring task to process the exit and fire
-                    // on_stop/on_exit hooks before we set Stopped ourselves.
-                    //
-                    // On Windows, child.wait() detection via
-                    // RegisterWaitForSingleObject has a small delay. If stop()
-                    // returns immediately after killing, a subsequent start()
-                    // (e.g. in `pitchfork restart`) upserts the daemon with a
-                    // new PID and Running status before the old monitoring task
-                    // has checked the daemon state. The monitoring task then
-                    // sees d.pid != Some(old_pid) && !is_stopped() && !is_stopping()
-                    // and returns early without firing hooks.
-                    //
-                    // By leaving the status as Stopping (not setting Stopped
-                    // here) and waiting for the monitoring task to set Stopped,
-                    // we guarantee hooks fire before stop() returns.
-                    let stop_deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-                    loop {
-                        let daemon = self.get_daemon(id).await;
-                        let done = daemon
-                            .as_ref()
-                            .is_some_and(|d| d.status.is_stopped() || d.pid.is_none());
-                        if done || tokio::time::Instant::now() >= stop_deadline {
-                            if !done {
-                                warn!("daemon {id} monitoring task did not set Stopped within 5s, falling back");
-                                self.upsert_daemon(
-                                    UpsertDaemonOpts::builder(id.clone())
-                                        .set(|o| {
-                                            o.pid = None;
-                                            o.status = DaemonStatus::Stopped;
-                                            o.last_exit_success = Some(true);
-                                        })
-                                        .build(),
-                                )
-                                .await?;
-                            }
-                            break;
-                        }
-                        tokio::time::sleep(Duration::from_millis(50)).await;
-                    }
+                    // Process successfully stopped
+                    // Note: kill_async uses SIGTERM -> wait ~3s -> SIGKILL strategy,
+                    // and also detects zombie processes, so by the time it returns,
+                    // the process should be fully terminated.
+                    self.upsert_daemon(
+                        UpsertDaemonOpts::builder(id.clone())
+                            .set(|o| {
+                                o.pid = None;
+                                o.status = DaemonStatus::Stopped;
+                                o.last_exit_success = Some(true);
+                            })
+                            .build(),
+                    )
+                    .await?;
                 } else {
                     debug!("pid {pid} not running, process may have exited unexpectedly");
                     // Process already dead, directly mark as stopped
