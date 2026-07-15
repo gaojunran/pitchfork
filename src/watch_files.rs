@@ -105,14 +105,44 @@ impl WatchFiles {
 /// Normalize a path by attempting to canonicalize it. If that fails, it attempts
 /// to resolve it as an absolute path. This helps ensure that different relative
 /// paths to the same directory are deduplicated.
+///
+/// On Windows, `std::fs::canonicalize()` returns paths with the `\\?\` (verbatim)
+/// prefix. The `notify` crate's PollWatcher may not correctly report changes for
+/// verbatim-prefixed paths, and the changed paths it reports would carry the
+/// prefix, causing mismatches with non-canonicalized glob patterns. We strip
+/// the prefix after canonicalization to keep paths consistent across the watcher
+/// and the pattern matcher.
 fn normalize_watch_path(path: &Path) -> PathBuf {
-    path.canonicalize().unwrap_or_else(|_| {
-        if path.is_absolute() {
-            path.to_path_buf()
+    path.canonicalize()
+        .map(|p| {
+            #[cfg(windows)]
+            { strip_verbatim_prefix(&p) }
+            #[cfg(not(windows))]
+            { p }
+        })
+        .unwrap_or_else(|_| {
+            if path.is_absolute() {
+                path.to_path_buf()
+            } else {
+                crate::env::CWD.join(path)
+            }
+        })
+}
+
+/// Strip the `\\?\` verbatim prefix from a Windows path.
+/// `\\?\C:\dir` → `C:\dir`, `\\?\UNC\server\share` → `\\server\share`
+#[cfg(windows)]
+fn strip_verbatim_prefix(path: &Path) -> PathBuf {
+    let s = path.to_string_lossy();
+    if let Some(rest) = s.strip_prefix(r"\\?\") {
+        if let Some(unc) = rest.strip_prefix(r"UNC\") {
+            PathBuf::from(format!(r"\\{}", unc))
         } else {
-            crate::env::CWD.join(path)
+            PathBuf::from(rest)
         }
-    })
+    } else {
+        path.to_path_buf()
+    }
 }
 
 /// Expand glob patterns to actual file paths.

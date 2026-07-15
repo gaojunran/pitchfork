@@ -1066,8 +1066,12 @@ impl Supervisor {
                 (Err(_), false) => (-1, "fail"),
             };
 
-            // Update daemon state unless stop() already did it (won the race).
-            if !already_stopped {
+            // Update daemon state unless stop() already did it (won the race),
+            // OR the daemon was intentionally stopped before the drain
+            // (pre_drain_is_stopping). In the latter case, start() may have
+            // upserted Running during the 5s drain, and we must NOT overwrite
+            // it with Stopped — that would undo the restart.
+            if !already_stopped && !pre_drain_is_stopping {
                 if let Ok(status) = &exit_status {
                     info!("daemon {id} exited with status {status}");
                 }
