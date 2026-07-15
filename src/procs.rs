@@ -6,6 +6,8 @@ use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use sysinfo::ProcessesToUpdate;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 
 /// Map from parent PID to its child PIDs.
 type ParentToChildren = HashMap<u32, Vec<u32>>;
@@ -273,15 +275,34 @@ impl Procs {
         #[cfg(windows)]
         {
             let _ = (stop_signal, stop_timeout);
-            self.refresh_pids(&[pid]);
-            if let Some(process) = self.lock_system().process(sysinfo_pid) {
-                process.kill();
+            // Use taskkill /F /T to kill the entire process tree.
+            // sysinfo's process.kill() only kills the main process, leaving
+            // child processes (e.g. python3 spawned by sh -c) orphaned and
+            // still holding ports. The /T flag kills all descendant processes.
+            let output = std::process::Command::new("taskkill")
+                .args(["/F", "/T", "/PID"])
+                .arg(pid.to_string())
+                .creation_flags(0x08000000) // CREATE_NO_WINDOW
+                .output();
+            match output {
+                Ok(o) if o.status.success() => {
+                    debug!("taskkill /F /T /PID {pid} succeeded");
+                }
+                Ok(o) => {
+                    // taskkill failed — process may have already exited
+                    debug!(
+                        "taskkill /F /T /PID {pid} exited with status {}: {}",
+                        o.status,
+                        String::from_utf8_lossy(&o.stderr).trim()
+                    );
+                }
+                Err(e) => {
+                    debug!("failed to spawn taskkill for pid {pid}: {e}");
+                }
             }
             // Brief sleep to let the OS signal the process handle, giving
             // tokio's child.wait() in the monitor task a chance to detect
-            // the exit and fire on_stop/on_exit hooks. Without this, stop()
-            // may complete and update state before child.wait() returns,
-            // causing a race that can delay hook firing beyond test timeouts.
+            // the exit and fire on_stop/on_exit hooks.
             std::thread::sleep(std::time::Duration::from_millis(200));
             Ok(true)
         }
