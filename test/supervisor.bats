@@ -54,7 +54,7 @@ get_supervisor_pid() {
   pitchfork supervisor stop 2>/dev/null || true
   pitchfork supervisor run &
   local sup_pid=$!
-  sleep 2
+  sleep 3
 
   run pitchfork list
   assert_success
@@ -74,7 +74,7 @@ get_supervisor_pid() {
   sleep 1
   pitchfork supervisor run --web-port 18999 --force &
   local sup_pid=$!
-  sleep 2
+  sleep 3
 
   run curl -s http://127.0.0.1:18999/
   assert_success
@@ -91,7 +91,7 @@ get_supervisor_pid() {
   pitchfork supervisor stop 2>/dev/null || true
   MSYS_NO_PATHCONV=1 pitchfork supervisor run --web-port 18998 --web-path /pf &
   local sup_pid=$!
-  sleep 2
+  sleep 3
 
   # Root path redirects to the configured prefix.
   run curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:18998/
@@ -133,7 +133,7 @@ EOF
 
   run pitchfork supervisor start
   assert_success
-  sleep 2
+  sleep 3
 
   run pitchfork status orphan_test
   assert_success
@@ -145,7 +145,6 @@ EOF
 # ============================================================================
 
 @test "restart triggers on_stop and on_exit hooks" {
-  skip_on_windows "child.wait() does not detect TerminateProcess exit on Windows in time for hook firing"
   local stop_marker
   stop_marker="$(to_shell_path "$TEST_TEMP_DIR/restart_stop_marker")"
   local exit_marker
@@ -187,7 +186,6 @@ EOF
 }
 
 @test "retry count persists across supervisor restart" {
-  skip_on_windows "depends on restart hooks which require child.wait() exit detection"
 
   export PITCHFORK_INTERVAL=1s
   local fail_script
@@ -343,7 +341,6 @@ EOF
 }
 
 @test "boot_start=true daemon auto-starts with supervisor" {
-  skip_on_windows "boot_start daemon namespace does not match CWD-derived namespace on Windows"
   create_pitchfork_toml <<EOF
 [daemons.bootsvc]
 run = "sleep 60"
@@ -355,7 +352,7 @@ EOF
   sleep 1
   MSYS_NO_PATHCONV=1 pitchfork supervisor run --boot &
   local sup_pid=$!
-  sleep 2
+  sleep 3
 
   wait_for_status bootsvc running
 

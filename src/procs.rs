@@ -275,14 +275,14 @@ impl Procs {
             let _ = (stop_signal, stop_timeout);
             self.refresh_pids(&[pid]);
             if let Some(process) = self.lock_system().process(sysinfo_pid) {
-                // TerminateProcess is synchronous — the process is terminated
-                // when kill() returns. Do NOT call wait() afterwards: on Windows,
-                // WaitForSingleObject can hang indefinitely on a handle whose
-                // process was already killed by TerminateProcess, especially for
-                // child processes of the killed process (e.g. `sh -c "sleep 120"`
-                // where sh is killed but sleep lingers as an orphan).
                 process.kill();
             }
+            // Brief sleep to let the OS signal the process handle, giving
+            // tokio's child.wait() in the monitor task a chance to detect
+            // the exit and fire on_stop/on_exit hooks. Without this, stop()
+            // may complete and update state before child.wait() returns,
+            // causing a race that can delay hook firing beyond test timeouts.
+            std::thread::sleep(std::time::Duration::from_millis(50));
             Ok(true)
         }
 

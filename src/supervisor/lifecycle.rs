@@ -718,7 +718,11 @@ impl Supervisor {
             }
 
             loop {
+                // biased: prioritize process exit over delay/output, so that
+                // a daemon that fails during ready_delay is detected before
+                // the delay timer fires and falsely marks it as ready.
                 select! {
+                    biased;
                     Some(line) = output_rx.recv() => {
                         let parsed = parse_line(&line);
                         log_buffer.push(parsed);

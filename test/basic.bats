@@ -14,7 +14,6 @@ teardown() {
 # ============================================================================
 
 @test "instant fail task fails start command quickly" {
-  skip_on_windows "process exits too fast for child.wait() to detect before ready_delay timer on Windows"
   local fail_script
   fail_script="$(script_path fail.sh)"
 
@@ -33,7 +32,6 @@ EOF
 }
 
 @test "two second fail task fails before default ready check" {
-  skip_on_windows "child.wait() exit detection timing is unreliable on Windows"
   local fail_script
   fail_script="$(script_path fail.sh)"
 
@@ -219,7 +217,6 @@ EOF
 }
 
 @test "retry three retries with exponential backoff" {
-  skip_on_windows "child.wait() exit detection timing is unreliable on Windows"
   local fail_script
   fail_script="$(script_path fail.sh)"
 

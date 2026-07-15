@@ -77,7 +77,6 @@ EOF
 }
 
 @test "resource violation triggers retry" {
-  skip_on_windows "sysinfo cannot track child process memory on Windows (parent-child map differs)"
   local eat_memory_script
   eat_memory_script="$(script_path eat_memory.sh)"
 
@@ -86,7 +85,7 @@ EOF
 run = "bash $eat_memory_script 64"
 memory_limit = "20MB"
 retry = 1
-ready_delay = 0
+ready_delay = 1
 EOF
 
   run pitchfork start mem_hog

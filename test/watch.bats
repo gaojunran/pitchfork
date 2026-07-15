@@ -14,7 +14,6 @@ teardown() {
 # ============================================================================
 
 @test "watching a file triggers daemon restart" {
-  skip_on_windows "notify crate does not trigger file change events on Windows CI"
   local http_script port
   http_script="$(script_path http_server.py)"
   port=19191
@@ -24,6 +23,7 @@ teardown() {
 [daemons.watch_test]
 run = "python3 -u $http_script 0 $port"
 watch = ["watch_test_marker.txt"]
+watch_mode = "poll"
 ready_port = $port
 EOF
 
@@ -128,7 +128,6 @@ EOF
 # ============================================================================
 
 @test "glob watch patterns restart daemon on matching file changes" {
-  skip_on_windows "notify crate does not trigger file change events on Windows CI"
   local http_script port
   http_script="$(script_path http_server.py)"
   port=19192
@@ -138,6 +137,7 @@ EOF
 [daemons.glob_watch_test]
 run = "python3 -u $http_script 0 $port"
 watch = ["lib/**/*.ts", "config/*.json"]
+watch_mode = "poll"
 ready_port = $port
 EOF
 
@@ -190,7 +190,6 @@ EOF
 # ============================================================================
 
 @test "relative watch paths trigger restart on file change" {
-  skip_on_windows "notify crate does not trigger file change events on Windows CI"
   local http_script port
   http_script="$(script_path http_server.py)"
   port=19193
@@ -200,6 +199,7 @@ EOF
 [daemons.relative_watch_test]
 run = "python3 -u $http_script 0 $port"
 watch = ["relative_test.txt"]
+watch_mode = "poll"
 ready_port = $port
 EOF
 
@@ -236,7 +236,6 @@ EOF
 # ============================================================================
 
 @test "watch_mode poll and auto both trigger restart on file changes" {
-  skip_on_windows "notify crate does not trigger file change events on Windows CI"
   local http_script port
   http_script="$(script_path http_server.py)"
 
