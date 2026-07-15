@@ -161,11 +161,11 @@ _common_teardown() {
     echo "# Test failed — preserving debug dirs:" >&3
     echo "#   TEST_TEMP_DIR=$TEST_TEMP_DIR" >&3
     echo "#   PITCHFORK_STATE_DIR=$PITCHFORK_STATE_DIR" >&3
-    # On Windows, print supervisor log for debugging watcher/hook issues
-    local sup_log="$PITCHFORK_LOGS_DIR/supervisor.log"
+    # Print supervisor log file for debugging watcher/hook issues
+    local sup_log="$PITCHFORK_LOGS_DIR/pitchfork/pitchfork.log"
     if [[ -f "$sup_log" ]]; then
-      echo "# --- supervisor.log (last 50 lines) ---" >&3
-      tail -50 "$sup_log" 2>/dev/null | sed 's/^/#   /' >&3 || true
+      echo "# --- pitchfork.log (last 80 lines) ---" >&3
+      tail -80 "$sup_log" 2>/dev/null | sed 's/^/#   /' >&3 || true
     fi
   fi
 }
