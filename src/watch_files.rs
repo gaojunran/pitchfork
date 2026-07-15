@@ -22,7 +22,7 @@ enum WatchFilesBackend {
 impl WatchFiles {
     pub fn new(duration: Duration, mode: WatchMode, poll_interval: Duration) -> Result<Self> {
         let h = tokio::runtime::Handle::current();
-        let (tx, rx) = tokio::sync::mpsc::channel(1);
+        let (tx, rx) = tokio::sync::mpsc::channel(256);
         let make_callback = |tx: tokio::sync::mpsc::Sender<Vec<PathBuf>>,
                              h: tokio::runtime::Handle| {
             move |res: DebounceEventResult| {
@@ -196,7 +196,13 @@ pub fn expand_watch_patterns(patterns: &[String], base_dir: &Path) -> Result<Has
 
 /// Normalize a path string to use forward slashes for glob pattern matching.
 /// This ensures consistent behavior across Windows and Unix platforms.
+///
+/// On Windows, `std::fs::canonicalize()` returns paths with the `\\?\` prefix
+/// (verbatim path). If we don't strip it, canonicalized watcher paths won't
+/// match non-canonicalized glob patterns built from `env::CWD`, causing all
+/// file-change matching to silently fail on Windows.
 fn normalize_path_for_glob(path: &str) -> String {
+    let path = path.strip_prefix(r"\\?\").unwrap_or(path);
     path.replace('\\', "/")
 }
 

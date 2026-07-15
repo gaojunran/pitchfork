@@ -346,7 +346,6 @@ EOF
 }
 
 @test "retry=true retries indefinitely" {
-  skip_on_windows "retry timing is flaky on Windows"
   local fail_script
   fail_script="$(script_path fail.sh)"
 
@@ -360,7 +359,7 @@ EOF
   # background and observe several retry attempts.
   pitchfork start retry_infinite &
   local start_pid=$!
-  sleep 5
+  sleep 10
   kill "$start_pid" 2>/dev/null || true
   wait "$start_pid" 2>/dev/null || true
 

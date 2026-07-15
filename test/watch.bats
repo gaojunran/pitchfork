@@ -14,7 +14,6 @@ teardown() {
 # ============================================================================
 
 @test "watching a file triggers daemon restart" {
-  skip_on_windows "file watcher does not trigger on Windows CI"
   local http_script port
   http_script="$(script_path http_server.py)"
   port=19191
@@ -129,7 +128,6 @@ EOF
 # ============================================================================
 
 @test "glob watch patterns restart daemon on matching file changes" {
-  skip_on_windows "file watcher does not trigger on Windows CI"
   local http_script port
   http_script="$(script_path http_server.py)"
   port=19192
@@ -192,7 +190,6 @@ EOF
 # ============================================================================
 
 @test "relative watch paths trigger restart on file change" {
-  skip_on_windows "file watcher does not trigger on Windows CI"
   local http_script port
   http_script="$(script_path http_server.py)"
   port=19193
@@ -238,7 +235,6 @@ EOF
 # ============================================================================
 
 @test "watch_mode poll and auto both trigger restart on file changes" {
-  skip_on_windows "file watcher does not trigger on Windows CI"
   local http_script port
   http_script="$(script_path http_server.py)"
 

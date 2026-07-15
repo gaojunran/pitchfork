@@ -1180,20 +1180,45 @@ impl Supervisor {
                         }
                     }
 
-                    // Process successfully stopped
-                    // Note: kill_async uses SIGTERM -> wait ~3s -> SIGKILL strategy,
-                    // and also detects zombie processes, so by the time it returns,
-                    // the process should be fully terminated.
-                    self.upsert_daemon(
-                        UpsertDaemonOpts::builder(id.clone())
-                            .set(|o| {
-                                o.pid = None;
-                                o.status = DaemonStatus::Stopped;
-                                o.last_exit_success = Some(true); // Manual stop is considered successful
-                            })
-                            .build(),
-                    )
-                    .await?;
+                    // Wait for the monitoring task to process the exit and fire
+                    // on_stop/on_exit hooks before we set Stopped ourselves.
+                    //
+                    // On Windows, child.wait() detection via
+                    // RegisterWaitForSingleObject has a small delay. If stop()
+                    // returns immediately after killing, a subsequent start()
+                    // (e.g. in `pitchfork restart`) upserts the daemon with a
+                    // new PID and Running status before the old monitoring task
+                    // has checked the daemon state. The monitoring task then
+                    // sees d.pid != Some(old_pid) && !is_stopped() && !is_stopping()
+                    // and returns early without firing hooks.
+                    //
+                    // By leaving the status as Stopping (not setting Stopped
+                    // here) and waiting for the monitoring task to set Stopped,
+                    // we guarantee hooks fire before stop() returns.
+                    let stop_deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+                    loop {
+                        let daemon = self.get_daemon(id).await;
+                        let done = daemon
+                            .as_ref()
+                            .is_some_and(|d| d.status.is_stopped() || d.pid.is_none());
+                        if done || tokio::time::Instant::now() >= stop_deadline {
+                            if !done {
+                                warn!("daemon {id} monitoring task did not set Stopped within 5s, falling back");
+                                self.upsert_daemon(
+                                    UpsertDaemonOpts::builder(id.clone())
+                                        .set(|o| {
+                                            o.pid = None;
+                                            o.status = DaemonStatus::Stopped;
+                                            o.last_exit_success = Some(true);
+                                        })
+                                        .build(),
+                                )
+                                .await?;
+                            }
+                            break;
+                        }
+                        tokio::time::sleep(Duration::from_millis(50)).await;
+                    }
                 } else {
                     debug!("pid {pid} not running, process may have exited unexpectedly");
                     // Process already dead, directly mark as stopped
