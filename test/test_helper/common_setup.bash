@@ -50,6 +50,10 @@ _common_setup() {
   # Fast watcher/poll intervals for responsive tests (matches Rust e2e defaults)
   export PITCHFORK_WATCH_INTERVAL=100ms
   export PITCHFORK_WATCH_POLL_INTERVAL=100ms
+  # Longer debounce: Windows ReadDirectoryChangesW may report multiple events
+  # for a single file modification (truncate + write + close), spaced >1s apart.
+  # A 3s debounce coalesces these into a single restart.
+  export PITCHFORK_FILE_WATCH_DEBOUNCE=3s
 
   # Verbose logging for easier debugging
   export PITCHFORK_LOG=debug

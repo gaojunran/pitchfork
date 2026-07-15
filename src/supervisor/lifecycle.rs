@@ -1220,8 +1220,15 @@ impl Supervisor {
                     .await?;
                 } else {
                     debug!("pid {pid} not running, process may have exited unexpectedly");
-                    // Process already dead, directly mark as stopped
-                    // Note that the cleanup logic is handled in monitor task
+                    // Process already dead. If the daemon is already in a
+                    // terminal state (Errored or Stopped), don't overwrite it
+                    // with Stopped — the background retry checker needs
+                    // Errored to retry the daemon after supervisor restart.
+                    if daemon.status.is_errored() || daemon.status.is_stopped() {
+                        debug!("daemon {id} already in terminal status {}, not overwriting", daemon.status);
+                        return Ok(IpcResponse::DaemonWasNotRunning);
+                    }
+                    // Otherwise mark as stopped (cleanup for unexpected exit)
                     self.upsert_daemon(
                         UpsertDaemonOpts::builder(id.clone())
                             .set(|o| {
