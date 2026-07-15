@@ -161,7 +161,7 @@ pub fn start_in_background() -> Result<()> {
             STARTF_USESTDHANDLES, STARTUPINFOW,
         };
 
-        // Open NUL device for stdin/stdout/stderr
+        // Open NUL device for stdin/stdout
         let nul: Vec<u16> = "\\\\?\\NUL\0".encode_utf16().collect();
         let null_handle = unsafe {
             CreateFileW(
@@ -181,12 +181,39 @@ pub fn start_in_background() -> Result<()> {
             ));
         }
 
+        // Open a log file for stderr so supervisor logs are visible for debugging.
+        let log_path = crate::env::PITCHFORK_LOGS_DIR.join("supervisor.log");
+        let log_path_wide: Vec<u16> =
+            format!("{}\0", log_path.to_string_lossy()).encode_utf16().collect();
+        let log_handle = unsafe {
+            CreateFileW(
+                log_path_wide.as_ptr(),
+                GENERIC_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                std::ptr::null(),
+                OPEN_ALWAYS,
+                FILE_ATTRIBUTE_NORMAL,
+                std::ptr::null::<u32>() as *mut std::ffi::c_void,
+            )
+        };
+        // If log file can't be opened, fall back to NUL for stderr
+        let stderr_handle = if log_handle as usize == usize::MAX {
+            null_handle
+        } else {
+            // Seek to end of file for append behavior
+            unsafe {
+                use windows_sys::Win32::Storage::FileSystem::SetFilePointer;
+                SetFilePointer(log_handle, 0, std::ptr::null_mut(), 2); // FILE_END = 2
+            }
+            log_handle
+        };
+
         let mut si: STARTUPINFOW = unsafe { std::mem::zeroed() };
         si.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
         si.dwFlags = STARTF_USESTDHANDLES;
         si.hStdInput = null_handle;
         si.hStdOutput = null_handle;
-        si.hStdError = null_handle;
+        si.hStdError = stderr_handle;
 
         let bin_path = &*env::PITCHFORK_BIN;
         let mut cmd_line: Vec<u16> = format!("{} supervisor run\0", bin_path.to_string_lossy())
@@ -211,6 +238,10 @@ pub fn start_in_background() -> Result<()> {
 
         // Close the NUL handle — the child has its own copy.
         unsafe { CloseHandle(null_handle) };
+        // Close the log handle if we opened one
+        if log_handle as usize != usize::MAX {
+            unsafe { CloseHandle(log_handle) };
+        }
 
         if ok == 0 {
             return Err(miette::miette!(
