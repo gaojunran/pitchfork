@@ -154,7 +154,8 @@ pub fn start_in_background() -> Result<()> {
         use std::os::windows::ffi::OsStrExt;
         use windows_sys::Win32::Foundation::{CloseHandle, FALSE, GENERIC_READ, GENERIC_WRITE};
         use windows_sys::Win32::Storage::FileSystem::{
-            CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+            CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_ALWAYS,
+            OPEN_EXISTING,
         };
         use windows_sys::Win32::System::Threading::{
             CREATE_NO_WINDOW, CreateProcessW, DETACHED_PROCESS, PROCESS_INFORMATION,
