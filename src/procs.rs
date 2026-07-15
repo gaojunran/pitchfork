@@ -282,7 +282,7 @@ impl Procs {
             // the exit and fire on_stop/on_exit hooks. Without this, stop()
             // may complete and update state before child.wait() returns,
             // causing a race that can delay hook firing beyond test timeouts.
-            std::thread::sleep(std::time::Duration::from_millis(50));
+            std::thread::sleep(std::time::Duration::from_millis(200));
             Ok(true)
         }
 

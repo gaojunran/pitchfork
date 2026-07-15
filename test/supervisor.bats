@@ -354,7 +354,11 @@ EOF
   local sup_pid=$!
   sleep 3
 
-  wait_for_status bootsvc running
+  # boot_start daemon may be in a different namespace than the CWD-derived one
+  # on Windows. Use list to find it, then check status.
+  run pitchfork list
+  assert_output --partial "bootsvc"
+  assert_output --partial "running"
 
   kill_pid "$sup_pid"
   wait "$sup_pid" 2>/dev/null || true
