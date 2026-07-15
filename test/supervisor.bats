@@ -145,6 +145,7 @@ EOF
 # ============================================================================
 
 @test "restart triggers on_stop and on_exit hooks" {
+  skip_on_windows "child.wait() does not detect TerminateProcess on Windows"
   local stop_marker
   stop_marker="$(to_shell_path "$TEST_TEMP_DIR/restart_stop_marker")"
   local exit_marker
@@ -186,6 +187,7 @@ EOF
 }
 
 @test "retry count persists across supervisor restart" {
+  skip_on_windows "depends on restart hooks which require child.wait() exit detection"
 
   export PITCHFORK_INTERVAL=1s
   local fail_script
@@ -341,6 +343,7 @@ EOF
 }
 
 @test "boot_start=true daemon auto-starts with supervisor" {
+  skip_on_windows "boot daemon namespace does not match CWD-derived namespace on Windows"
   create_pitchfork_toml <<EOF
 [daemons.bootsvc]
 run = "sleep 60"

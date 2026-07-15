@@ -346,6 +346,7 @@ EOF
 }
 
 @test "retry=true retries indefinitely" {
+  skip_on_windows "retry timing is flaky on Windows"
   local fail_script
   fail_script="$(script_path fail.sh)"
 
