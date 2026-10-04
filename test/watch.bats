@@ -58,6 +58,71 @@ EOF
   pitchfork stop watch_test
 }
 
+# `wait` follows a daemon through a restart its file watch triggers, the
+# same way it follows retries, and returns only when it stops for good.
+@test "wait keeps waiting through a watch-triggered restart" {
+  create_pitchfork_toml <<'EOF'
+[daemons.wait_watch_test]
+run = "sleep 300"
+watch = ["wait_watch_marker.txt"]
+watch_mode = "poll"
+ready_delay = 1
+EOF
+
+  echo "initial" > wait_watch_marker.txt
+
+  run pitchfork start wait_watch_test
+  assert_success
+  wait_for_status wait_watch_test running
+
+  local original_pid
+  original_pid="$(get_daemon_pid wait_watch_test)"
+  [[ -n "$original_pid" ]]
+
+  pitchfork wait wait_watch_test >wait_test_output.log 2>&1 &
+  local wait_pid=$!
+
+  # Let the wait command attach before the restart begins.
+  sleep 2
+
+  echo "modified" > wait_watch_marker.txt
+
+  local new_pid current_pid
+  new_pid=""
+  for _ in $(seq 1 30); do
+    current_pid="$(get_daemon_pid wait_watch_test)"
+    if [[ -n "$current_pid" && "$current_pid" != "$original_pid" ]]; then
+      new_pid="$current_pid"
+      break
+    fi
+    sleep 1
+  done
+  [[ -n "$new_pid" ]]
+  wait_for_status wait_watch_test running
+
+  # The restart settled. Had the stop been recorded as final, the wait
+  # command would have exited by now.
+  sleep 3
+  pid_alive "$wait_pid"
+
+  # Stopping the daemon for good ends the wait, cleanly.
+  pitchfork stop wait_watch_test
+  local exited=1
+  for _ in $(seq 1 50); do
+    if ! pid_alive "$wait_pid"; then
+      exited=0
+      break
+    fi
+    sleep 0.2
+  done
+  [[ "$exited" == 0 ]]
+  set +e
+  wait "$wait_pid"
+  local wait_status=$?
+  set -e
+  assert_equal "$wait_status" 0
+}
+
 # ============================================================================
 # Watch config persistence
 # ============================================================================

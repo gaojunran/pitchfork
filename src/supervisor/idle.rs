@@ -307,7 +307,7 @@ impl Supervisor {
                     None => {
                         let grace = graces.get(&id).copied().unwrap_or_default();
                         info!("stopping {id}: no proxy activity for {grace:?}");
-                        match self.stop_locked(&id).await {
+                        match self.stop_locked(&id, false).await {
                             Ok(IpcResponse::Ok | IpcResponse::DaemonWasNotRunning) => true,
                             // No process to stop, so nothing recorded an
                             // outcome over the stopping mark.

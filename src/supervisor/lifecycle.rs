@@ -768,7 +768,7 @@ impl Supervisor {
             return Ok(None);
         };
         if opts.force {
-            self.stop_locked(id).await?;
+            self.stop_locked(id, false).await?;
             info!("run: stop completed for daemon {id}");
             return Ok(None);
         }
@@ -2499,11 +2499,30 @@ impl Supervisor {
         // same daemon serialize against it instead of racing the Stopping window.
         let lock = self.stop_lock(id).await;
         let _guard = lock.lock().await;
-        self.stop_locked(id).await
+        self.stop_locked(id, false).await
+    }
+
+    /// Stop a daemon that is about to be started again right away.
+    ///
+    /// The completed stop records `Waiting` instead of `Stopped`: `Waiting`
+    /// is not a terminal status, so `pitchfork wait` — which follows a
+    /// daemon's restarts like its retries — keeps waiting through the gap
+    /// until the next start takes over the record.
+    pub(crate) async fn stop_for_restart(&self, id: &DaemonId) -> Result<IpcResponse> {
+        let lock = self.stop_lock(id).await;
+        let _guard = lock.lock().await;
+        self.stop_locked(id, true).await
     }
 
     /// Stop implementation. Caller must hold the daemon's stop lock.
-    pub(super) async fn stop_locked(&self, id: &DaemonId) -> Result<IpcResponse> {
+    ///
+    /// `restart_pending` records the completed stop as `Waiting` rather
+    /// than `Stopped` (see [`Supervisor::stop_for_restart`]).
+    pub(super) async fn stop_locked(
+        &self,
+        id: &DaemonId,
+        restart_pending: bool,
+    ) -> Result<IpcResponse> {
         let pitchfork_id = DaemonId::pitchfork();
         if *id == pitchfork_id {
             return Ok(IpcResponse::Error(
@@ -2511,6 +2530,11 @@ impl Supervisor {
             ));
         }
         info!("stopping daemon: {id}");
+        let final_status = if restart_pending {
+            DaemonStatus::Waiting
+        } else {
+            DaemonStatus::Stopped
+        };
         // A foreground `start` may be working through this daemon's retries,
         // sleeping out a backoff with no process of its own to kill. Tell it to
         // give up, or it would start the next attempt once the stop has
@@ -2545,7 +2569,7 @@ impl Supervisor {
                             UpsertDaemonOpts::builder(id.clone())
                                 .set(|o| {
                                     o.pid = None;
-                                    o.status = DaemonStatus::Stopped;
+                                    o.status = final_status;
                                 })
                                 .build(),
                         )
@@ -2608,7 +2632,7 @@ impl Supervisor {
                                 UpsertDaemonOpts::builder(id.clone())
                                     .set(|o| {
                                         o.pid = None;
-                                        o.status = DaemonStatus::Stopped;
+                                        o.status = final_status;
                                         o.last_exit_success = Some(true);
                                     })
                                     .build(),
@@ -2631,7 +2655,7 @@ impl Supervisor {
                         UpsertDaemonOpts::builder(id.clone())
                             .set(|o| {
                                 o.pid = None;
-                                o.status = DaemonStatus::Stopped;
+                                o.status = final_status;
                                 o.last_exit_success = Some(true);
                             })
                             .build(),
@@ -2662,9 +2686,13 @@ impl Supervisor {
                     );
                     self.wait_for_exit_finalized(id, Some(pid)).await;
                     let finished = self.get_daemon(id).await;
-                    if finished
-                        .as_ref()
-                        .is_some_and(|d| stop_keeps_finalized_status(&d.status))
+                    // A restart flattens even a kept status: the next start is
+                    // already on its way, so the record must not sit on a
+                    // terminal status in the gap.
+                    if !restart_pending
+                        && finished
+                            .as_ref()
+                            .is_some_and(|d| stop_keeps_finalized_status(&d.status))
                     {
                         return Ok(IpcResponse::DaemonWasNotRunning);
                     }
@@ -2675,7 +2703,7 @@ impl Supervisor {
                         UpsertDaemonOpts::builder(id.clone())
                             .set(|o| {
                                 o.pid = None;
-                                o.status = DaemonStatus::Stopped;
+                                o.status = final_status;
                             })
                             .build(),
                     )
@@ -2693,7 +2721,7 @@ impl Supervisor {
                         UpsertDaemonOpts::builder(id.clone())
                             .set(|o| {
                                 o.pid = None;
-                                o.status = DaemonStatus::Stopped;
+                                o.status = final_status;
                             })
                             .build(),
                     )
@@ -2712,7 +2740,7 @@ impl Supervisor {
                         UpsertDaemonOpts::builder(id.clone())
                             .set(|o| {
                                 o.pid = None;
-                                o.status = DaemonStatus::Stopped;
+                                o.status = final_status;
                             })
                             .build(),
                     )

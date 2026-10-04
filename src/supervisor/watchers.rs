@@ -1577,8 +1577,11 @@ impl Supervisor {
             }
         };
 
-        // Stop the daemon first
-        let _ = self.stop(id).await;
+        // Stop the daemon first. The stop records `Waiting` rather than
+        // `Stopped` (see [`Supervisor::stop_for_restart`]) so `pitchfork wait`
+        // does not treat it as the daemon's end while the restart is on its
+        // way.
+        let _ = self.stop_for_restart(id).await;
 
         // Small delay to allow the process to fully stop
         time::sleep(settings().supervisor_restart_delay()).await;
@@ -1595,13 +1598,46 @@ impl Supervisor {
             }
             Ok(other) => {
                 warn!("Unexpected response when restarting daemon {id}: {other:?}");
+                self.mark_failed_watch_restart(id).await;
             }
             Err(e) => {
                 error!("Failed to restart daemon {id}: {e}");
+                self.mark_failed_watch_restart(id).await;
             }
         }
 
         Ok(())
+    }
+
+    /// Record a watch-triggered restart that never got a process running.
+    ///
+    /// The stop left the daemon `Waiting`; with nothing coming to replace
+    /// it, the record must not stay that way. `Errored(-1)` is terminal for
+    /// `pitchfork wait`, and the retry checker picks it up when `retry` is
+    /// configured. A restart that got as far as spawning leaves its own
+    /// terminal status behind (written by the monitor), which is kept.
+    async fn mark_failed_watch_restart(&self, id: &DaemonId) {
+        let still_waiting = self
+            .get_daemon(id)
+            .await
+            .is_some_and(|d| d.status.is_waiting());
+        if !still_waiting {
+            return;
+        }
+        let result = self
+            .upsert_daemon(
+                UpsertDaemonOpts::builder(id.clone())
+                    .set(|o| {
+                        o.pid = None;
+                        o.status = DaemonStatus::Errored(-1);
+                        o.last_exit_success = Some(false);
+                    })
+                    .build(),
+            )
+            .await;
+        if let Err(e) = result {
+            error!("failed to record failed restart of daemon {id}: {e}");
+        }
     }
 }
 

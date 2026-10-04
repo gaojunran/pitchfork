@@ -193,7 +193,7 @@ impl Supervisor {
             debug!("autostop of {daemon_id} cancelled before stopping");
             return;
         }
-        match self.stop_locked(daemon_id).await {
+        match self.stop_locked(daemon_id, false).await {
             Ok(_) => {
                 self.add_notification(Info, format!("autostopped {label}"))
                     .await;
