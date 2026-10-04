@@ -253,3 +253,121 @@ EOF
   wait_for_status wait_kill stopped
   run ! pid_alive "$daemon_pid"
 }
+
+# ============================================================================
+# start --wait
+# ============================================================================
+
+@test "start --wait waits for the started daemon and propagates its exit code" {
+  create_pitchfork_toml <<'EOF'
+[daemons.start_wait_fail]
+run = "sleep 2 && exit 7"
+ready_delay = 0
+EOF
+
+  # The start phase ends as soon as the daemon is ready; --wait then stays
+  # attached until the daemon exits 7, and the command propagates that code.
+  run pitchfork start start_wait_fail --wait
+  assert_failure 7
+
+  wait_for_status start_wait_fail errored
+}
+
+@test "start --wait returns 0 when the daemon is stopped" {
+  create_pitchfork_toml <<'EOF'
+[daemons.start_wait_stop]
+run = "sleep 60"
+ready_delay = 0
+EOF
+
+  pitchfork start start_wait_stop --wait >/dev/null 2>&1 &
+  local start_pid=$!
+
+  wait_for_status start_wait_stop running
+  # The command stays attached while the daemon runs.
+  sleep 1
+  pid_alive "$start_pid"
+
+  run pitchfork stop start_wait_stop
+  assert_success
+
+  local exited=1
+  for _ in $(seq 1 50); do
+    if ! pid_alive "$start_pid"; then
+      exited=0
+      break
+    fi
+    sleep 0.2
+  done
+  [[ "$exited" == 0 ]]
+  wait "$start_pid"
+  local start_status=$?
+  assert_equal "$start_status" 0
+}
+
+@test "start --wait exits 1 without waiting when the start fails" {
+  create_pitchfork_toml <<'EOF'
+[daemons.start_wait_broken]
+run = "definitely-not-a-command-xyz"
+ready_delay = 0
+EOF
+
+  # A failed start exits 1 right away instead of attaching.
+  run pitchfork start start_wait_broken --wait
+  assert_failure 1
+}
+
+@test "start --wait attaches to a daemon that was already running" {
+  create_pitchfork_toml <<'EOF'
+[daemons.start_wait_existing]
+run = "sleep 60"
+ready_delay = 0
+EOF
+
+  run pitchfork start start_wait_existing
+  assert_success
+  wait_for_status start_wait_existing running
+
+  pitchfork start start_wait_existing --wait >/dev/null 2>&1 &
+  local start_pid=$!
+
+  # The second start does not restart the daemon; --wait attaches to it.
+  sleep 1
+  pid_alive "$start_pid"
+
+  run pitchfork stop start_wait_existing
+  assert_success
+
+  local exited=1
+  for _ in $(seq 1 50); do
+    if ! pid_alive "$start_pid"; then
+      exited=0
+      break
+    fi
+    sleep 0.2
+  done
+  [[ "$exited" == 0 ]]
+  wait "$start_pid"
+  local start_status=$?
+  assert_equal "$start_status" 0
+}
+
+@test "start --wait evaluates the new run, not the previous record" {
+  create_pitchfork_toml <<EOF
+[daemons.start_wait_again]
+run = "if [ ! -f $TEST_TEMP_DIR/second_run ]; then touch $TEST_TEMP_DIR/second_run; exit 7; fi; sleep 2"
+ready_delay = 0
+EOF
+
+  # First run exits 7 before becoming ready, so the start itself fails
+  # and an Errored(7) record is left on disk.
+  run pitchfork start start_wait_again
+  assert_failure 1
+  wait_for_status start_wait_again errored
+
+  # The second run stops cleanly. Its `start --wait` must wait for the new
+  # run (state flushes on an interval, so the old record is briefly still
+  # on disk) and exit 0 — not evaluate the stale Errored(7).
+  run pitchfork start start_wait_again --wait
+  assert_success
+}

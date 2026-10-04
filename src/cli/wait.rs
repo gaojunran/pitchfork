@@ -80,142 +80,197 @@ impl Wait {
             PitchforkToml::resolve_ids_and_group(&self.id, self.group.as_deref())?
         };
 
-        // Snapshot the daemons we will actually wait on, classifying each
-        // resolved target in argument order. The (possibly stale) state
-        // snapshot is only used to learn the initial pids.
-        let sf = StateFile::get();
-        let supervisor_live = supervisor_is_live(sf);
-        let mut watched_ids: Vec<DaemonId> = Vec::new();
-        let mut polled: Vec<Watched> = Vec::new();
-        for id in &ids {
-            match sf.daemons.get(id) {
-                Some(daemon)
-                    if !is_terminal_status(&daemon.status)
-                        || retry_pending(sf, daemon, supervisor_live) =>
-                {
-                    // Not finished: evaluate the daemon after it stops for
-                    // good. Its pid, when it has one, tells when the current
-                    // attempt ends; the state then tells whether another
-                    // attempt follows.
-                    watched_ids.push(id.clone());
-                    polled.push(Watched::new(id.clone(), daemon.pid));
-                }
-                Some(_) => {
-                    // Already terminal: evaluate immediately, its exit
-                    // code still counts toward the result.
-                    watched_ids.push(id.clone());
-                }
-                None => {
-                    warn!("{id} is not running");
-                }
-            }
-        }
+        wait_for_daemons(&ids, self.kill).await
+    }
+}
 
-        if watched_ids.is_empty() {
-            return Ok(());
-        }
-
-        // Only connect to the supervisor when the --kill signal handler
-        // needs it, so plain `pitchfork wait <id>` keeps working without
-        // IPC side effects (e.g. supervisor auto-start).
-        let ipc: Option<Arc<IpcClient>> = if self.kill {
-            Some(Arc::new(IpcClient::connect(false).await?))
-        } else {
-            None
+/// Wait for the given daemons to stop, tailing their logs along the way.
+///
+/// The shared body of `pitchfork wait` and `pitchfork start --wait`: exits 0
+/// only when every daemon stopped cleanly; otherwise the exit code of the
+/// first failing daemon (in the order given) is propagated. With `kill`, an
+/// incoming signal first stops the waited daemons via the supervisor, then
+/// the command exits with 128 + the signal number.
+pub(crate) async fn wait_for_daemons(ids: &[DaemonId], kill: bool) -> Result<()> {
+    // Snapshot the daemons we will actually wait on, classifying each
+    // resolved target in argument order. Read the state file fresh —
+    // `start --wait` shares this code path and its start phase already
+    // cached an earlier read (the new records may not have been flushed
+    // then) — and the (possibly stale) snapshot is only used to learn the
+    // initial pids.
+    let sf = StateFile::read(&*env::PITCHFORK_STATE_FILE).ok();
+    let supervisor_live = sf.as_ref().is_some_and(supervisor_is_live);
+    let mut watched_ids: Vec<DaemonId> = Vec::new();
+    let mut polled: Vec<Watched> = Vec::new();
+    for id in ids {
+        let Some(daemon) = sf.as_ref().and_then(|sf| sf.daemons.get(id)) else {
+            warn!("{id} is not running");
+            continue;
         };
-
-        let tail_names = watched_ids.clone();
-        tokio::spawn(async move {
-            logs::tail_logs(
-                &tail_names,
-                true,
-                false,
-                Vec::new(),
-                Vec::new(),
-                None,
-                settings().logs.timestamp,
-                false,
-            )
-            .await
-            .unwrap_or_default();
-        });
-
-        // Register signal handlers only when --kill is set.
-        let mut signal_rx = if self.kill {
-            Some(register_signal_receiver()?)
-        } else {
-            None
-        };
-
-        // Only live daemons are polled; when every target was already
-        // finished (or gone), skip straight to the evaluation below.
-        if !polled.is_empty() {
-            let mut interval = time::interval(time::Duration::from_millis(100));
-            let mut remaining = polled;
-
-            loop {
-                tokio::select! {
-                    signo = wait_for_signal(&mut signal_rx), if signal_rx.is_some() => {
-                        match signo {
-                            Some(signo) => {
-                                // Graceful SIGTERM -> SIGKILL stop via the supervisor
-                                // (hooks fire, reverse dependency order), then exit
-                                // like the shell does when killed by the signal.
-                                // Stop only the daemons still being polled (live):
-                                // already-finished targets are not running, so
-                                // stopping them is meaningless, and daemons that
-                                // were not running at snapshot time must not be
-                                // killed here either.
-                                let stop_ids: Vec<DaemonId> =
-                                    remaining.iter().map(|w| w.id.clone()).collect();
-                                let ipc = ipc.as_ref().expect("--kill connects IPC upfront");
-                                if let Err(e) = ipc.stop_daemons(&stop_ids).await {
-                                    warn!("failed to stop waited daemons on signal: {e}");
-                                }
-                                std::process::exit(128 + signo);
-                            }
-                            None => {
-                                // Every signal listener closed without firing (e.g.
-                                // ctrl_c() failed at await time on Windows). Signal
-                                // handling is gone, so --kill can no longer act;
-                                // disable the branch and keep polling.
-                                warn!("--kill signal handling is no longer active; continuing to wait");
-                                signal_rx = None;
-                            }
-                        }
-                    }
-                    _ = interval.tick() => {
-                        // The state is read only once a watched process has
-                        // gone, to learn whether the daemon is done.
-                        if remaining.iter().any(|w| !w.process_running()) {
-                            let sf = StateFile::read(&*env::PITCHFORK_STATE_FILE).ok();
-                            let supervisor_live = sf.as_ref().is_some_and(supervisor_is_live);
-                            remaining.retain_mut(|w| w.still_running(sf.as_ref(), supervisor_live));
-                        }
-                        if remaining.is_empty() {
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        // The supervisor updates daemon status asynchronously after the
-        // process exits, so poll fresh state until every waited daemon
-        // reaches a terminal status (bounded at ~2s).
-        let statuses = read_terminal_statuses(&watched_ids).await;
-        // Exit 0 only when every watched daemon's terminal status maps to
-        // 0; a status missing from the state (not persisted yet) maps to
-        // 1. Otherwise propagate the exit code of the first failing daemon
-        // in the order the daemons were selected (argument order).
-        if let Some(exit_code) = watched_ids
-            .iter()
-            .map(|id| daemon_exit_code(id, &statuses))
-            .find(|code| *code != 0)
+        if !is_terminal_status(&daemon.status)
+            || sf
+                .as_ref()
+                .is_some_and(|sf| retry_pending(sf, daemon, supervisor_live))
         {
-            std::process::exit(exit_code);
+            // Not finished: evaluate the daemon after it stops for
+            // good. Its pid, when it has one, tells when the current
+            // attempt ends; the state then tells whether another
+            // attempt follows.
+            watched_ids.push(id.clone());
+            polled.push(Watched::new(id.clone(), daemon.pid));
+        } else {
+            // Already terminal: evaluate immediately, its exit
+            // code still counts toward the result.
+            watched_ids.push(id.clone());
         }
-        Ok(())
+    }
+
+    if watched_ids.is_empty() {
+        return Ok(());
+    }
+
+    // Only connect to the supervisor when the --kill signal handler
+    // needs it, so plain `pitchfork wait <id>` (and `start --wait`) keep
+    // working without IPC side effects.
+    let ipc: Option<Arc<IpcClient>> = if kill {
+        Some(Arc::new(IpcClient::connect(false).await?))
+    } else {
+        None
+    };
+
+    let tail_names = watched_ids.clone();
+    tokio::spawn(async move {
+        logs::tail_logs(
+            &tail_names,
+            true,
+            false,
+            Vec::new(),
+            Vec::new(),
+            None,
+            settings().logs.timestamp,
+            false,
+        )
+        .await
+        .unwrap_or_default();
+    });
+
+    // Register signal handlers only when --kill is set.
+    let mut signal_rx = if kill {
+        Some(register_signal_receiver()?)
+    } else {
+        None
+    };
+
+    // Only live daemons are polled; when every target was already
+    // finished (or gone), skip straight to the evaluation below.
+    if !polled.is_empty() {
+        let mut interval = time::interval(time::Duration::from_millis(100));
+        let mut remaining = polled;
+
+        loop {
+            tokio::select! {
+                signo = wait_for_signal(&mut signal_rx), if signal_rx.is_some() => {
+                    match signo {
+                        Some(signo) => {
+                            // Graceful SIGTERM -> SIGKILL stop via the supervisor
+                            // (hooks fire, reverse dependency order), then exit
+                            // like the shell does when killed by the signal.
+                            // Stop only the daemons still being polled (live):
+                            // already-finished targets are not running, so
+                            // stopping them is meaningless, and daemons that
+                            // were not running at snapshot time must not be
+                            // killed here either.
+                            let stop_ids: Vec<DaemonId> =
+                                remaining.iter().map(|w| w.id.clone()).collect();
+                            let ipc = ipc.as_ref().expect("--kill connects IPC upfront");
+                            if let Err(e) = ipc.stop_daemons(&stop_ids).await {
+                                warn!("failed to stop waited daemons on signal: {e}");
+                            }
+                            std::process::exit(128 + signo);
+                        }
+                        None => {
+                            // Every signal listener closed without firing (e.g.
+                            // ctrl_c() failed at await time on Windows). Signal
+                            // handling is gone, so --kill can no longer act;
+                            // disable the branch and keep polling.
+                            warn!("--kill signal handling is no longer active; continuing to wait");
+                            signal_rx = None;
+                        }
+                    }
+                }
+                _ = interval.tick() => {
+                    // The state is read only once a watched process has
+                    // gone, to learn whether the daemon is done.
+                    if remaining.iter().any(|w| !w.process_running()) {
+                        let sf = StateFile::read(&*env::PITCHFORK_STATE_FILE).ok();
+                        let supervisor_live = sf.as_ref().is_some_and(supervisor_is_live);
+                        remaining.retain_mut(|w| w.still_running(sf.as_ref(), supervisor_live));
+                    }
+                    if remaining.is_empty() {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // The supervisor updates daemon status asynchronously after the
+    // process exits, so poll fresh state until every waited daemon
+    // reaches a terminal status (bounded at ~2s).
+    let statuses = read_terminal_statuses(&watched_ids).await;
+    // Exit 0 only when every watched daemon's terminal status maps to
+    // 0; a status missing from the state (not persisted yet) maps to
+    // 1. Otherwise propagate the exit code of the first failing daemon
+    // in the order the daemons were selected (argument order).
+    if let Some(exit_code) = watched_ids
+        .iter()
+        .map(|id| daemon_exit_code(id, &statuses))
+        .find(|code| *code != 0)
+    {
+        std::process::exit(exit_code);
+    }
+    Ok(())
+}
+
+/// Attach to daemons that `pitchfork start --wait` just started: wait for
+/// them like `pitchfork wait`, without `--kill`.
+///
+/// `pitchfork start` returns as soon as the daemons are ready, but the
+/// supervisor flushes state to the file on an interval, so the file may
+/// still hold the previous run's record — or none at all. Reading it in
+/// that window would evaluate the old record as this run's outcome, so the
+/// state is given a flush interval to catch up first (see
+/// [`wait_for_records_to_catch_up`]).
+pub(crate) async fn wait_for_started(ids: &[DaemonId]) -> Result<()> {
+    wait_for_records_to_catch_up(ids).await;
+    wait_for_daemons(ids, false).await
+}
+
+/// How long `start --wait` gives the state file to catch up with a start it
+/// just observed: the supervisor flushes state on an interval, so the
+/// previous run's record can still be on disk when the start returns.
+const STATE_CATCH_UP_TIMEOUT: time::Duration =
+    crate::supervisor::STATE_FLUSH_INTERVAL.saturating_add(time::Duration::from_millis(500));
+
+/// Poll the state file until every id is recorded with a non-terminal
+/// status, bounded by [`STATE_CATCH_UP_TIMEOUT`]. On timeout (or an
+/// unreadable state file) fall through and let the regular classification
+/// do its best.
+async fn wait_for_records_to_catch_up(ids: &[DaemonId]) {
+    let deadline = time::Instant::now() + STATE_CATCH_UP_TIMEOUT;
+    loop {
+        let Ok(sf) = StateFile::read(&*env::PITCHFORK_STATE_FILE) else {
+            return;
+        };
+        let caught_up = ids.iter().all(|id| {
+            sf.daemons
+                .get(id)
+                .is_some_and(|d| !is_terminal_status(&d.status))
+        });
+        if caught_up || time::Instant::now() >= deadline {
+            return;
+        }
+        time::sleep(time::Duration::from_millis(100)).await;
     }
 }
 

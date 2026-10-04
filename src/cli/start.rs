@@ -30,7 +30,8 @@ Examples:
     pitchfork start api --http http://localhost:8080/health
                                   Wait for HTTP endpoint to return 2xx
     pitchfork start api --port 8080
-                                  Wait for TCP port to be listening";
+                                  Wait for TCP port to be listening
+    pitchfork start api --wait    Start 'api' and wait for it to stop";
 
 /// Starts a daemon from a pitchfork.toml file
 #[derive(Debug, usage_rs::Args)]
@@ -115,6 +116,9 @@ pub struct Start {
     /// Suppress startup log output
     #[usage(short, long)]
     quiet: bool,
+    /// Wait for the started daemons to stop, like `pitchfork wait`
+    #[usage(long)]
+    wait: bool,
 }
 
 impl Start {
@@ -234,6 +238,23 @@ impl Start {
 
         if result.any_failed {
             std::process::exit(1);
+        }
+
+        // Like `pitchfork wait`: stay attached to the started daemons,
+        // tailing their logs, until they stop, propagating their exit codes.
+        // Daemons that were already running are not restarted (that takes
+        // --force) but are attached to as well, in argument order.
+        if self.wait {
+            let running: std::collections::HashSet<DaemonId> =
+                ipc.get_running_daemons().await?.into_iter().collect();
+            let started: std::collections::HashSet<&DaemonId> =
+                result.started.iter().map(|(id, _, _)| id).collect();
+            let targets: Vec<DaemonId> = ids
+                .iter()
+                .filter(|id| running.contains(*id) || started.contains(id))
+                .cloned()
+                .collect();
+            super::wait::wait_for_started(&targets).await?;
         }
         Ok(())
     }

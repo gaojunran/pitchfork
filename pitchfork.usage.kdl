@@ -1111,6 +1111,7 @@ Examples:
                                   Wait for HTTP endpoint to return 2xx
     pitchfork start api --port 8080
                                   Wait for TCP port to be listening
+    pitchfork start api --wait    Start 'api' and wait for it to stop
 """#
     flag --group help="Start all daemons in the named group" {
         conflicts --local --global --all
@@ -1161,6 +1162,7 @@ Examples:
         arg "[BUMP]" var_min=0 var_max=1 required=#false
     }
     flag "-q --quiet" help="Suppress startup log output"
+    flag --wait help="Wait for the started daemons to stop, like `pitchfork wait`"
     flag "-h --help" help="Print help" action=help builtin=#true
     arg "[ID]..." help="ID of the daemon(s) in pitchfork.toml to start" {
         conflicts --local --global --all

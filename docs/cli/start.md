@@ -25,6 +25,7 @@ Examples:
                                   Wait for HTTP endpoint to return 2xx
     pitchfork start api --port 8080
                                   Wait for TCP port to be listening
+    pitchfork start api --wait    Start 'api' and wait for it to stop
 
 ## Arguments
 - **`[ID]…`** — ID of the daemon(s) in pitchfork.toml to start
@@ -50,4 +51,5 @@ Examples:
 - **`--expected-port <EXPECTED_PORT>`** — Ports the daemon is expected to bind to (can be specified multiple times or comma-separated)
 - **`--bump [BUMP]`** — Automatically find an available port if the expected port is in use
 - **`-q --quiet`** — Suppress startup log output
+- **`--wait`** — Wait for the started daemons to stop, like `pitchfork wait`
 - **`-h --help`** — Print help
